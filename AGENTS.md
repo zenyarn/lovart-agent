@@ -68,3 +68,9 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+## 公开仓库发布约定
+
+- `origin` 为 GitHub 公开仓库 `zenyarn/lovart-agent`，日常开发在 `main` 分阶段提交并按用户授权推送。
+- `archive/local-development-20261120` 与 `.local/pre-public-history.bundle` 仅为本机早期历史备份，含原始个人部署记录，不能推送到公开仓库；禁止使用 `git push --all` 或 `--mirror` 发布本仓库。
+- `.local/private-records/`、真实 `.env` 和 Supabase 管理截图保留在本地。公开文档使用配置项或示例邮箱，不披露实际准入地址及部署实例标识。
