@@ -38,3 +38,7 @@
 ## 运行边界
 
 本地轮询版不承诺浏览器关闭后自动搬运结果；重新打开会恢复查询。正式公网部署、SMTP、Webhook 和定时调度不属于当前本地版交付范围。
+
+## GitHub 公开发布验证
+
+仓库 `zenyarn/lovart-agent` 的 visibility=PUBLIC、默认分支 main，匿名 HTTP 200；远端仅有 main，没有推送本机历史备份分支。首轮 CI [44718603657](https://github.com/zenyarn/lovart-agent/actions/runs/44718603657) 在无真实密钥的 Linux 环境通过 install、53 项测试、类型检查、lint、生产构建。
