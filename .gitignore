@@ -1,0 +1,32 @@
+# 本地环境变量与密钥（示例文件只能包含占位符）
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+
+# Node.js 与 Next.js 生成文件
+node_modules/
+.next/
+out/
+dist/
+coverage/
+*.tsbuildinfo
+next-env.d.ts
+.pnpm-store/
+
+# 部署和 Supabase 本地缓存
+.vercel/
+supabase/.temp/
+supabase/.branches/
+
+# 日志与系统文件
+*.log
+.DS_Store
+
+# 本地 API 验证原始记录（可能包含临时资源地址）
+.local/
+
+# 本机管理界面截图含部署身份信息，不随公开源码发布
+docs/images/setup/supabase-*.jpg
