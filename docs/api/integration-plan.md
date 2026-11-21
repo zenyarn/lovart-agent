@@ -105,3 +105,13 @@
 2026-11-20 联调发现本机 DNS 将 `tempfile.aiquickdraw.com` 映射至 `198.18.0.247`（代理 Fake-IP），因此原下载器按非公网地址拒绝。修复保留原有内网拦截：仅当域名解析全部为 RFC 2544 的 `198.18.0.0/15` 地址时，使用固定 `https://dns.google/resolve` 查询真实 A 记录，再次检查公网地址，并把已校验 IP 固定到 HTTPS 连接；不允许任意 DNS 服务，不放行保留 IP 字面量，不透传 KIE 密钥。
 
 已复用之前成功任务验证：下载、实际 PNG 解码、Storage 保存、结果入库与原占位节点替换全部成功，没有再次调用收费创建接口。Next.js Proxy 的请求体缓存设为 11 MiB，应用自身仍严格执行 10 MiB 参考图上限。
+
+## Pi Agent 接入（2026-11-21）
+- Pi 实际安装版本 1.5.2，使用 createModels + provider 注册 + Agent；非旧版 getModel 全局 API。
+- KIMI_BASE_URL 覆盖实际请求地址。coding 路径默认 kimi-for-coding；Moonshot 默认 kimi-k3.1-pro，可用 KIMI_MODEL 指定。真实配置的 models 端点确认提供 kimi-k3.1-pro/kimi-k3，前者已返回正常 OK。
+- GPT 2.5 Flare 使用官方文生图/图生图接口，参考图字段 input_urls，有序保存素材 ID；详情见 https://docs.kie.ai/43283988e0 和 https://docs.kie.ai/43285205e0 。
+- 私有 Bucket 新增 text/markdown MIME，保持私有；Markdown 最大 256 KiB、UTF-8，预览以 text/plain + CSP sandbox 返回。
+- 20261121041922_pi_agent.sql 已通过本地 PGlite 测试并在目标项目 SQL Editor 执行成功；Data API agent_runs 查询通过。MCP 不可用且 CLI 未登录，因此本次使用已有 Dashboard 会话执行。
+- Agent 事件通过 SSE 返回，断线后读取持久事件快照；完整模型上下文只在服务端使用。
+- KIMI_REQUEST_INTERVAL_MS 默认21000，适配低额度账户3 RPM；这是单进程共享节流，多实例需共享限流。Agent 单轮最多4次生图、24轮模型请求、15分钟运行；超过20分钟无心跳的遗留运行可恢复为失败。
+- 真实验收与已知部署边界见 [Agent验收记录](../agent-verification.md)。

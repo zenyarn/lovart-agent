@@ -3,7 +3,11 @@ import { adminClient } from "./supabase/admin";
 import { AppError } from "./auth";
 import { signedAsset, bucket } from "./assets";
 import { createTask, queryTask, ProviderRejection } from "./kie-client";
-import { toKieInput, type GenerationInput } from "./models";
+import {
+  toKieInput,
+  type AgentGenerationInput,
+  type GenerationInput,
+} from "./models";
 import { downloadImage } from "./download";
 import { inspectImage, OUTPUT_LIMIT } from "./image-validation";
 
@@ -13,24 +17,41 @@ function key() {
 }
 export async function submitGeneration(
   owner: string,
-  input: GenerationInput,
+  input: GenerationInput | AgentGenerationInput,
   newProject = false,
 ) {
   const apiKey = key(),
     client = adminClient();
-  const reference = input.referenceAssetId
-    ? await signedAsset(owner, input.referenceAssetId)
-    : undefined;
-  if (
-    reference &&
-    reference.project_id &&
-    reference.project_id !== input.projectId
-  )
-    throw new AppError(400, "参考图不属于当前项目");
+  const referenceIds =
+    input.model === "gpt25"
+      ? input.referenceAssetIds
+      : input.referenceAssetId
+        ? [input.referenceAssetId]
+        : [];
+  const references = await Promise.all(
+    referenceIds.map((id) => signedAsset(owner, id)),
+  );
+  for (const reference of references) {
+    if (
+      (input.model === "gpt25" && reference.project_id !== input.projectId) ||
+      (reference.project_id && reference.project_id !== input.projectId)
+    )
+      throw new AppError(400, "参考图不属于当前项目");
+    if (!reference.mime?.startsWith("image/"))
+      throw new AppError(400, "参考素材必须是图片");
+  }
+  const payload = toKieInput(
+    input,
+    references.map((r) => r.url),
+  );
   const config = {
     resolution: input.resolution,
     ratio: input.ratio,
-    ...(input.background ? { background: input.background } : {}),
+    ...(input.model === "gpt25"
+      ? { referenceAssetIds: referenceIds, providerModel: payload.model }
+      : input.background
+        ? { background: input.background }
+        : {}),
   };
   const { data, error } = await client.rpc("begin_generation", {
     p_owner: owner,
@@ -39,7 +60,7 @@ export async function submitGeneration(
     p_prompt: input.prompt,
     p_model: input.model,
     p_config: config,
-    p_reference: input.referenceAssetId || null,
+    p_reference: referenceIds[0] || null,
     p_new_project: newProject,
   });
   if (error) {
@@ -64,7 +85,7 @@ export async function submitGeneration(
       status: generation.status,
     };
   try {
-    const taskId = await createTask(apiKey, toKieInput(input, reference?.url));
+    const taskId = await createTask(apiKey, payload);
     const { error: saveError } = await client
       .from("generations")
       .update({

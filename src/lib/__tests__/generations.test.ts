@@ -67,7 +67,7 @@ const input = {
   prompt: "blue cup",
   model: "nano" as const,
   resolution: "1K" as const,
-  ratio: "1:1",
+  ratio: "1:1" as const,
 };
 beforeEach(() => {
   vi.clearAllMocks();
@@ -161,4 +161,16 @@ it("does not leak or query another owners task", async () => {
     "任务不存在或无权访问",
   );
   expect(state.query).not.toHaveBeenCalled();
+});
+it('submits Flare with every ordered reference and persists the actual model configuration',async()=>{
+ state.sign.mockImplementation(async(_o,id)=>({id,project_id:input.projectId,mime:'image/png',url:`https://example.com/${id}.png`}));
+ const refs=['164bec3f-8110-4606-b627-19a508ef9f9c','90d12b31-a3bf-4cd5-a555-a9d5ac19d433'];
+ await submitGeneration('owner',{...input,model:'gpt25',referenceAssetIds:refs});
+ expect(state.create.mock.calls[0][1]).toEqual({model:'gpt-image-2-5-flare-image-to-image',input:{prompt:'blue cup',aspect_ratio:'1:1',resolution:'1K',input_urls:refs.map(id=>`https://example.com/${id}.png`)}});
+ expect(state.rpc.mock.calls[0][1].p_config).toMatchObject({referenceAssetIds:refs,providerModel:'gpt-image-2-5-flare-image-to-image'});
+});
+it('rejects a second reference belonging to another project before creating a paid task',async()=>{
+ state.sign.mockImplementation(async(_o,id)=>({id,project_id:id==='first'?input.projectId:'other',mime:'image/png',url:'https://example.com/a.png'}));
+ await expect(submitGeneration('owner',{...input,model:'gpt25',referenceAssetIds:['first','second']})).rejects.toThrow('参考图不属于当前项目');
+ expect(state.create).not.toHaveBeenCalled();
 });

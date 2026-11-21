@@ -11,6 +11,7 @@ export type Asset = {
   width: number;
   height: number;
   mime: string;
+  name?: string;
 };
 export type Project = {
   id: string;
@@ -26,8 +27,8 @@ export type Generation = {
   id: string;
   project_id: string;
   prompt: string;
-  model: Model;
-  config: Omit<Settings, "model">;
+  model: Model | "gpt25";
+  config: Omit<Settings, "model"> & {referenceAssetIds?:string[];providerModel?:string};
   reference_asset_id: string | null;
   status: string;
   error: string | null;
@@ -36,7 +37,7 @@ export type Generation = {
 };
 export type CanvasNode = {
   id: string;
-  generation_id: string;
+  generation_id: string | null;
   asset_id: string | null;
   x: number;
   y: number;

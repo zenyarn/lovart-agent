@@ -77,7 +77,68 @@ export const generationSchema = z
       });
   });
 export type GenerationInput = z.infer<typeof generationSchema>;
-export function toKieInput(value: GenerationInput, referenceUrl?: string) {
+export const agentRatios = [
+  "auto",
+  "1:1",
+  "3:2",
+  "2:3",
+  "4:3",
+  "3:4",
+  "16:9",
+  "9:16",
+  "27:16",
+  "16:27",
+  "9:8",
+  "8:9",
+] as const;
+export const agentGenerationSchema = z
+  .object({
+    projectId: z.uuid(),
+    requestKey: z.uuid(),
+    prompt: z.string().trim().min(1).max(20000),
+    model: z.literal("gpt25"),
+    resolution: z.enum(["1K", "2K", "4K"]),
+    ratio: z.enum(agentRatios),
+    referenceAssetIds: z.array(z.uuid()).max(16).default([]),
+  })
+  .strict()
+  .superRefine((v, ctx) => {
+    if (new Set(v.referenceAssetIds).size !== v.referenceAssetIds.length)
+      ctx.addIssue({
+        code: "custom",
+        path: ["referenceAssetIds"],
+        message: "参考图不能重复",
+      });
+    if (
+      v.resolution !== "1K" &&
+      ["27:16", "16:27", "9:8", "8:9"].includes(v.ratio)
+    )
+      ctx.addIssue({
+        code: "custom",
+        path: ["ratio"],
+        message: "该比例仅支持 1K",
+      });
+  });
+export type AgentGenerationInput = z.infer<typeof agentGenerationSchema>;
+export function toKieInput(
+  value: GenerationInput | AgentGenerationInput,
+  referenceUrls?: string | string[],
+) {
+  const urls =
+    typeof referenceUrls === "string" ? [referenceUrls] : referenceUrls || [];
+  if (value.model === "gpt25")
+    return {
+      model: urls.length
+        ? "gpt-image-2-5-flare-image-to-image"
+        : "gpt-image-2-5-flare-text-to-image",
+      input: {
+        prompt: value.prompt,
+        aspect_ratio: value.ratio,
+        resolution: value.resolution,
+        ...(urls.length ? { input_urls: urls } : {}),
+      } as Record<string, unknown>,
+    };
+  const referenceUrl = urls[0];
   const input: Record<string, unknown> = {
     prompt: value.prompt,
     aspect_ratio: value.ratio,

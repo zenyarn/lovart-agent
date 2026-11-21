@@ -13,7 +13,10 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@earendil-works/pi-agent-core": "^1.5.2",
+    "@earendil-works/pi-ai": "^1.5.2",
     "@lobehub/icons": "6.18.0",
+    "@sinclair/typebox": "^0.34.52",
     "@supabase/ssr": "0.12.7",
     "@supabase/supabase-js": "2.119.1",
     "@xyflow/react": "13.0.2",
@@ -22,6 +25,8 @@
     "next": "16.4.6",
     "react": "19.3.1",
     "react-dom": "19.3.1",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "server-only": "0.0.1",
     "sharp": "0.35.5",
     "zod": "4.6.7"

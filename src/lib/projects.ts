@@ -45,6 +45,7 @@ export async function projectDetail(owner: string, id: string) {
     ...new Set(
       [
         ...gs.data.map((g) => g.reference_asset_id),
+        ...gs.data.flatMap(g=>g.config.referenceAssetIds||[]),
         ...ns.data.map((n) => n.asset_id),
       ].filter(Boolean),
     ),

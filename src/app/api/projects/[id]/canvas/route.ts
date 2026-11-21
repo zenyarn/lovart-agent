@@ -20,6 +20,8 @@ const schema = z.object({
         id: z.uuid(),
         x: z.number().min(-1e7).max(1e7),
         y: z.number().min(-1e7).max(1e7),
+        width: z.number().positive().max(10000).optional(),
+        height: z.number().positive().max(10000).optional(),
       }),
     )
     .max(10000),
@@ -59,5 +61,37 @@ export async function PUT(
     return Response.json({ revision: data });
   } catch (error) {
     return errorResponse(error);
+  }
+}
+
+export async function POST(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  try {
+    assertSameOrigin(request);
+    const user = await requireOwner();
+    const { id } = await params;
+    const value = z
+      .object({
+        assetId: z.uuid(),
+        nodeId: z.uuid(),
+        x: z.number().min(-1e7).max(1e7).optional(),
+        y: z.number().min(-1e7).max(1e7).default(0),
+      })
+      .strict()
+      .parse(await request.json());
+    const { data, error } = await adminClient().rpc("place_canvas_asset", {
+      p_owner: user.id,
+      p_project: id,
+      p_asset: value.assetId,
+      p_node: value.nodeId,
+      p_x: value.x ?? null,
+      p_y: value.y,
+    });
+    if (error) throw new AppError(400, "素材不存在或无法放入画布");
+    return Response.json({ node: data });
+  } catch (e) {
+    return errorResponse(e);
   }
 }
