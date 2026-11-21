@@ -121,8 +121,8 @@ export async function submitGeneration(
       .update({
         status,
         error:
-          status === "failed"
-            ? "上游拒绝生成请求，请检查额度或参数"
+          error instanceof ProviderRejection
+            ? error.publicMessage
             : "上游受理结果待核实，请勿重复提交",
         updated_at: new Date().toISOString(),
       })

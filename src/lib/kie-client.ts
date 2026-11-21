@@ -5,7 +5,20 @@ export class SubmissionUnknownError extends Error {
     super("上游受理结果待核实，请勿重复提交");
   }
 }
-export class ProviderRejection extends Error {}
+export class ProviderRejection extends Error {
+  constructor(
+    message: string,
+    public code?: number,
+  ) {
+    super(message);
+  }
+  get publicMessage() {
+    if (this.code === 402) return "KIE 额度不足，请充值后重试";
+    if (this.code === 401) return "生图服务认证失败，请检查服务端配置";
+    if (this.code === 429) return "生图服务请求频率受限，请稍后重试";
+    return "上游拒绝生成请求，请检查额度或参数";
+  }
+}
 type Fetcher = typeof fetch;
 export async function createTask(
   key: string,
@@ -38,6 +51,7 @@ export async function createTask(
     if (typeof data.code === "number" && data.code >= 400 && data.code < 500)
       throw new ProviderRejection(
         String(data.msg || "上游拒绝请求").slice(0, 300),
+        data.code,
       );
     throw new SubmissionUnknownError();
   }

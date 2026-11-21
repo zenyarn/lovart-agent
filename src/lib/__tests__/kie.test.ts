@@ -26,36 +26,48 @@ it("requires valid task identifier in accepted response", async () => {
   ).rejects.toBeInstanceOf(SubmissionUnknownError);
 });
 it("parses canonical result JSON without trusting extra callback values", async () => {
-  const fetcher = vi
-    .fn()
-    .mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          code: 200,
-          data: {
-            taskId: "task",
-            state: "success",
-            resultJson: JSON.stringify({
-              resultUrls: ["https://example.com/a.png"],
-            }),
-          },
-        }),
-      ),
-    );
+  const fetcher = vi.fn().mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        code: 200,
+        data: {
+          taskId: "task",
+          state: "success",
+          resultJson: JSON.stringify({
+            resultUrls: ["https://example.com/a.png"],
+          }),
+        },
+      }),
+    ),
+  );
   expect((await queryTask("key", "task", fetcher)).urls).toEqual([
     "https://example.com/a.png",
   ]);
 });
 it("rejects mismatched task IDs", async () => {
+  const fetcher = vi.fn().mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        code: 200,
+        data: { taskId: "other", state: "success", resultJson: "{}" },
+      }),
+    ),
+  );
+  await expect(queryTask("key", "task", fetcher)).rejects.toThrow();
+});
+it("exposes a safe actionable reason for insufficient credit without leaking provider details", async () => {
   const fetcher = vi
     .fn()
     .mockResolvedValue(
       new Response(
-        JSON.stringify({
-          code: 200,
-          data: { taskId: "other", state: "success", resultJson: "{}" },
-        }),
+        JSON.stringify({ code: 402, msg: "private-provider-detail" }),
       ),
     );
-  await expect(queryTask("key", "task", fetcher)).rejects.toThrow();
+  await expect(
+    createTask("secret", { model: "gpt25", input: {} }, fetcher),
+  ).rejects.toMatchObject({
+    code: 402,
+    publicMessage: "KIE 额度不足，请充值后重试",
+  });
+  expect(fetcher).toHaveBeenCalledTimes(1);
 });
