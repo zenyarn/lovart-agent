@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import {
   ReactFlow,
+  NodeResizer,
   ReactFlowProvider,
   useReactFlow,
   type Node,
@@ -26,7 +27,15 @@ import {
 } from "lucide-react";
 import type { Asset, ProjectDetail, Generation, Settings } from "@/lib/types";
 import { api } from "@/lib/client-api";
+import {
+  canvasDraftMatches,
+  mergeCanvasDraft,
+  restoreCanvasDraft,
+} from "@/lib/canvas-drafts";
 import { Composer, type Draft } from "./composer";
+import { AgentMessage } from "./agent-message";
+import type { AgentRun } from "@/lib/agent/types";
+import type { AgentDraft } from "./composer";
 import { ModelIcon } from "./model-icon";
 
 type ImageData = {
@@ -43,6 +52,14 @@ function CanvasImage({ data, selected }: NodeProps<ImageNode>) {
     >
       {data.asset ? (
         <>
+          <NodeResizer
+            isVisible={selected}
+            keepAspectRatio
+            minWidth={40}
+            minHeight={40}
+            maxWidth={10000}
+            maxHeight={10000}
+          />
           <img draggable={false} src={data.asset.url} alt="生成结果" />
           <div className="node-actions nodrag">
             <a
@@ -85,6 +102,8 @@ function toNodes(detail: ProjectDetail, picking: boolean): ImageNode[] {
     id: n.id,
     type: "image",
     position: { x: n.x, y: n.y },
+    width: n.width,
+    height: n.height,
     style: { width: n.width, height: n.height },
     data: {
       asset: n.asset_id ? detail.assets[n.asset_id] : undefined,
@@ -120,6 +139,15 @@ function Workspace({ initial }: { initial: ProjectDetail }) {
     [editingName, setEditingName] = useState(false),
     [zoom, setZoom] = useState(initial.project.viewport.zoom),
     [busy, setBusy] = useState(false);
+  const [agentRuns, setAgentRuns] = useState<AgentRun[]>([]);
+  const [agentConnection, setAgentConnection] = useState("");
+  const [mode, setMode] = useState<"agent" | "image">("image");
+  const pendingAgent = useRef(
+    new Map<string, { draft: AgentDraft; run: AgentRun }>(),
+  );
+  const retryKeys = useRef(new Map<string, string>());
+  const copiedNodes = useRef<ImageNode[]>([]);
+  const removedNodes = useRef(new Set<string>());
   const flow = useReactFlow<ImageNode>();
   const current = useRef(initial),
     nodeRef = useRef(nodes),
@@ -136,6 +164,13 @@ function Workspace({ initial }: { initial: ProjectDetail }) {
     lastCount = useRef(initial.generations.length);
   const projectId = initial.project.id,
     draftKey = `lovart-canvas:${projectId}`;
+  const pendingKey = `lovart-agent-pending:${projectId}`;
+  function persistPending() {
+    localStorage.setItem(
+      pendingKey,
+      JSON.stringify([...pendingAgent.current.values()]),
+    );
+  }
   const save = useCallback(
     async function saveSnapshot() {
       if (!dirty.current || conflict.current || saving.current) return;
@@ -143,10 +178,16 @@ function Workspace({ initial }: { initial: ProjectDetail }) {
       setSaveState("保存中…");
       const snapshot = {
         revision: revision.current,
-        nodes: nodeRef.current.map((n) => ({ id: n.id, ...n.position })),
+        nodes: nodeRef.current.map((n) => ({
+          id: n.id,
+          ...n.position,
+          width: Number(n.width || n.style?.width),
+          height: Number(n.height || n.style?.height),
+        })),
         viewport: viewportRef.current,
         settings: settingsRef.current,
       };
+      const savedRemovals = new Set(removedNodes.current);
       dirty.current = false;
       try {
         const result = await api<{ revision: number }>(
@@ -154,9 +195,15 @@ function Workspace({ initial }: { initial: ProjectDetail }) {
           { method: "PUT", body: JSON.stringify(snapshot) },
         );
         revision.current = result.revision;
+        for (const id of savedRemovals) removedNodes.current.delete(id);
         if (!dirty.current) {
-          if (localStorage.getItem(draftKey) === JSON.stringify(snapshot))
-            localStorage.removeItem(draftKey);
+          try {
+            const local = JSON.parse(localStorage.getItem(draftKey) || "null");
+            if (local && canvasDraftMatches(local, snapshot))
+              localStorage.removeItem(draftKey);
+          } catch {
+            /* Preserve unrecognized local content. */
+          }
           setSaveState("已保存");
         }
       } catch (e) {
@@ -180,7 +227,12 @@ function Workspace({ initial }: { initial: ProjectDetail }) {
       draftKey,
       JSON.stringify({
         revision: revision.current,
-        nodes: nodeRef.current.map((n) => ({ id: n.id, ...n.position })),
+        nodes: nodeRef.current.map((n) => ({
+          id: n.id,
+          ...n.position,
+          width: Number(n.width || n.style?.width),
+          height: Number(n.height || n.style?.height),
+        })),
         viewport: viewportRef.current,
         settings: settingsRef.current,
       }),
@@ -190,24 +242,24 @@ function Workspace({ initial }: { initial: ProjectDetail }) {
   }, [draftKey, save]);
   const refresh = useCallback(async () => {
     const next = await api<ProjectDetail>(`/api/projects/${projectId}`);
-    if (!mounted.current) return;
+    if (!mounted.current || next.project.revision < revision.current) return;
+    const previousAssets = current.current.assets;
     current.current = next;
-    setDetail(next);
+    setDetail((old) => ({
+      ...next,
+      assets: { ...old.assets, ...next.assets },
+    }));
+    current.current.assets = { ...previousAssets, ...next.assets };
     if (dirty.current || saving.current) {
       if (!saving.current && next.project.revision !== revision.current) {
         conflict.current = true;
         setSaveState("画布已更新，请刷新；本地草稿已保留");
       }
       setNodes((old) => {
-        const local = new Map(old.map((n) => [n.id, n]));
-        const result = toNodes(next, false).map((n) =>
-          local.has(n.id)
-            ? {
-                ...n,
-                position: local.get(n.id)!.position,
-                selected: local.get(n.id)!.selected,
-              }
-            : n,
+        const result = mergeCanvasDraft(
+          toNodes(next, false),
+          old,
+          removedNodes.current,
         );
         nodeRef.current = result;
         return result;
@@ -229,24 +281,33 @@ function Workspace({ initial }: { initial: ProjectDetail }) {
     mounted.current = true;
     const saved = Number(localStorage.getItem("lovart-panel-width"));
     if (saved) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- Browser-only preference restored after hydration.
       setWidth(Math.max(320, Math.min(620, saved)));
     }
     const local = localStorage.getItem(draftKey);
     if (local)
       try {
         const draft = JSON.parse(local);
-        if (draft.revision === initial.project.revision) {
-          const positions = new Map<string, { x: number; y: number }>(
-            draft.nodes.map((n: { id: string; x: number; y: number }) => [
-              n.id,
-              { x: n.x, y: n.y },
-            ]),
+        const serverSnapshot = {
+          nodes: initial.nodes.map((n) => ({
+            id: n.id,
+            x: n.x,
+            y: n.y,
+            width: n.width,
+            height: n.height,
+          })),
+          viewport: initial.project.viewport,
+          settings: initial.project.model_settings,
+        };
+        if (canvasDraftMatches(draft, serverSnapshot)) {
+          localStorage.removeItem(draftKey);
+        } else if (draft.revision === initial.project.revision) {
+          const restored = restoreCanvasDraft(
+            toNodes(initial, false),
+            draft.nodes,
           );
-          const restored = toNodes(initial, false).map((n) => ({
-            ...n,
-            position: positions.get(n.id) || n.position,
-          }));
+          const retained = new Set(restored.map((n) => n.id));
+          for (const n of initial.nodes)
+            if (!retained.has(n.id)) removedNodes.current.add(n.id);
           nodeRef.current = restored;
           setNodes(restored);
           viewportRef.current = draft.viewport;
@@ -324,6 +385,8 @@ function Workspace({ initial }: { initial: ProjectDetail }) {
       if (e.key === "Escape") setPicking(false);
       if (
         e.key.toLowerCase() === "c" &&
+        !e.metaKey &&
+        !e.ctrlKey &&
         !(e.target instanceof HTMLInputElement) &&
         !(e.target instanceof HTMLTextAreaElement)
       ) {
@@ -345,6 +408,251 @@ function Workspace({ initial }: { initial: ProjectDetail }) {
       window.removeEventListener("beforeunload", before);
     };
   }, []);
+  async function addAsset(asset: Asset) {
+    if (asset.mime.startsWith("image/")) {
+      await save();
+      await api(`/api/projects/${projectId}/canvas`, {
+        method: "POST",
+        body: JSON.stringify({ assetId: asset.id, nodeId: asset.id }),
+      });
+    }
+    await refresh();
+  }
+  async function sendAgent(draft: AgentDraft) {
+    const optimistic: AgentRun = {
+      id: draft.requestKey,
+      prompt: draft.prompt,
+      attachment_ids: draft.attachments.map((a) => a.id),
+      status: "running",
+      events: [],
+      error: null,
+      created_at: new Date().toISOString(),
+    };
+    setDetail((old) => ({
+      ...old,
+      assets: {
+        ...old.assets,
+        ...Object.fromEntries(draft.attachments.map((a) => [a.id, a])),
+      },
+    }));
+    pendingAgent.current.set(draft.requestKey, { draft, run: optimistic });
+    persistPending();
+    setAgentRuns((old) => [
+      ...old.filter((r) => r.id !== optimistic.id),
+      optimistic,
+    ]);
+    try {
+      await save();
+      const { run } = await api<{ run: AgentRun }>(
+        `/api/projects/${projectId}/agent`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            requestKey: draft.requestKey,
+            prompt: draft.prompt,
+            attachmentIds: optimistic.attachment_ids,
+          }),
+        },
+      );
+      pendingAgent.current.delete(draft.requestKey);
+      persistPending();
+      setAgentRuns((old) => [...old.filter((r) => r.id !== run.id), run]);
+    } catch (e) {
+      const failed: AgentRun = {
+        ...optimistic,
+        status: "failed",
+        error: (e as Error).message,
+      };
+      pendingAgent.current.set(draft.requestKey, { draft, run: failed });
+      persistPending();
+      setAgentRuns((old) =>
+        old.map((r) =>
+          r.id === optimistic.id
+            ? { ...r, status: "failed", error: (e as Error).message }
+            : r,
+        ),
+      );
+      throw e;
+    }
+  }
+  useEffect(() => {
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    try {
+      for (const item of JSON.parse(localStorage.getItem(pendingKey) || "[]")) {
+        item.run.status = "failed";
+        item.run.error = "消息提交状态待确认，可使用同一请求安全重试。";
+        pendingAgent.current.set(item.run.id, item);
+      }
+    } catch {
+      /* Ignore corrupt local drafts without modifying server history. */
+    }
+    async function applyRuns(runs: AgentRun[]) {
+      if (stopped) return;
+      for (const run of runs) pendingAgent.current.delete(run.id);
+      persistPending();
+      const combined = [
+        ...runs,
+        ...[...pendingAgent.current.values()].map((p) => p.run),
+      ];
+      setAgentRuns(combined);
+      const missing = [
+        ...new Set(combined.flatMap((r) => r.attachment_ids)),
+      ].filter((id) => !current.current.assets[id]);
+      if (missing.length) {
+        const assets = await Promise.all(
+          missing.map(
+            async (id) =>
+              (await api<{ asset: Asset }>(`/api/assets/${id}`)).asset,
+          ),
+        );
+        if (!stopped) {
+          current.current = {
+            ...current.current,
+            assets: {
+              ...current.current.assets,
+              ...Object.fromEntries(assets.map((a) => [a.id, a])),
+            },
+          };
+          setDetail((old) => ({
+            ...old,
+            assets: {
+              ...old.assets,
+              ...Object.fromEntries(assets.map((a) => [a.id, a])),
+            },
+          }));
+        }
+      }
+    }
+    let source: EventSource | undefined;
+    async function pollAgent() {
+      try {
+        const { runs } = await api<{ runs: AgentRun[] }>(
+          `/api/projects/${projectId}/agent`,
+        );
+        await applyRuns(runs);
+      } catch {
+        /* Retry transient connections without discarding messages. */
+      }
+      if (!stopped) timer = setTimeout(pollAgent, 2000);
+    }
+    if (typeof EventSource !== "undefined") {
+      source = new EventSource(`/api/projects/${projectId}/agent?stream=1`);
+      source.onmessage = (event) => {
+        setAgentConnection("");
+        void applyRuns(JSON.parse(event.data).runs).catch(() => {});
+      };
+      source.onerror = () => {
+        if (!stopped) setAgentConnection("对话连接中断，正在重连…");
+      };
+      source.onopen = () => {
+        if (!stopped) setAgentConnection("");
+      };
+      // EventSource reconnects automatically; durable snapshots avoid lost deltas.
+    } else void pollAgent();
+    return () => {
+      stopped = true;
+      source?.close();
+      clearTimeout(timer);
+    };
+    // The pending store is scoped to this keyed project workspace.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, pendingKey]);
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      const target = e.target as HTMLElement;
+      if (
+        target.closest('input,textarea,[contenteditable="true"]') ||
+        target.closest(".conversation")
+      )
+        return;
+      if (e.key === "Delete" || e.key === "Backspace") {
+        const selected = nodeRef.current.filter(
+          (n) => n.selected && n.data.asset,
+        );
+        if (!selected.length) return;
+        e.preventDefault();
+        const remove = new Set(selected.map((n) => n.id));
+        for (const id of remove) removedNodes.current.add(id);
+        nodeRef.current = nodeRef.current.filter((n) => !remove.has(n.id));
+        setNodes(nodeRef.current);
+        scheduleSave();
+      }
+    }
+    function isEditing(target: EventTarget | null) {
+      return (
+        !(target instanceof HTMLElement) ||
+        !!target.closest(
+          'input,textarea,[contenteditable="true"],.conversation',
+        )
+      );
+    }
+    function copy(event: ClipboardEvent) {
+      if (isEditing(event.target) || !event.clipboardData) return;
+      copiedNodes.current = nodeRef.current.filter(
+        (n) => n.selected && n.data.asset,
+      );
+      if (!copiedNodes.current.length) return;
+      event.clipboardData.setData(
+        "text/plain",
+        `lovart-canvas:${projectId}:` +
+          JSON.stringify(
+            copiedNodes.current.map((n) => ({
+              assetId: n.data.asset!.id,
+              x: n.position.x,
+              y: n.position.y,
+            })),
+          ),
+      );
+      event.preventDefault();
+    }
+    function paste(event: ClipboardEvent) {
+      if (isEditing(event.target)) return;
+      const prefix = `lovart-canvas:${projectId}:`;
+      const text = event.clipboardData?.getData("text/plain") || "";
+      if (!text.startsWith(prefix)) return;
+      let items: { assetId: string; x: number; y: number }[];
+      try {
+        items = JSON.parse(text.slice(prefix.length));
+        if (
+          !Array.isArray(items) ||
+          items.length > 100 ||
+          !items.every(
+            (n) =>
+              typeof n.assetId === "string" &&
+              Number.isFinite(n.x) &&
+              Number.isFinite(n.y),
+          )
+        )
+          return;
+      } catch {
+        return;
+      }
+      event.preventDefault();
+      void (async () => {
+        await save();
+        for (const n of items)
+          await api(`/api/projects/${projectId}/canvas`, {
+            method: "POST",
+            body: JSON.stringify({
+              assetId: n.assetId,
+              nodeId: crypto.randomUUID(),
+              x: n.x + 40,
+              y: n.y + 40,
+            }),
+          });
+        await refresh();
+      })().catch((e) => setError(e.message));
+    }
+    window.addEventListener("keydown", handleKey, true);
+    window.addEventListener("copy", copy);
+    window.addEventListener("paste", paste);
+    return () => {
+      window.removeEventListener("keydown", handleKey, true);
+      window.removeEventListener("copy", copy);
+      window.removeEventListener("paste", paste);
+    };
+  }, [projectId, save, refresh, scheduleSave]);
   async function send(draft: Draft) {
     setBusy(true);
     setError("");
@@ -457,10 +765,14 @@ function Workspace({ initial }: { initial: ProjectDetail }) {
               nodeRef.current = next;
               return next;
             });
+            if (
+              changes.getByType("dimensions").some((c) => c.resizing === false)
+            )
+              requestAnimationFrame(scheduleSave);
           }}
           onNodeDragStop={() => scheduleSave()}
           onNodeClick={(_e, n) => {
-            if (picking && n.data.asset) {
+            if ((picking || mode === "agent") && n.data.asset) {
               setReference(n.data.asset);
               setPicking(false);
               setMobileTab("chat");
@@ -571,10 +883,29 @@ function Workspace({ initial }: { initial: ProjectDetail }) {
       />
       <aside className="conversation">
         <header className="conversation-header">
-          <h2>{detail.generations[0]?.prompt || "新对话"}</h2>
+          <h2>
+            {agentRuns.at(-1)?.prompt ||
+              detail.generations[0]?.prompt ||
+              "新对话"}
+          </h2>
         </header>
         <div className="conversation-history" ref={history}>
-          {detail.generations.length === 0 ? (
+          {agentRuns.map((run) => (
+            <AgentMessage
+              key={run.id}
+              run={run}
+              assets={detail.assets}
+              onRetry={
+                pendingAgent.current.has(run.id)
+                  ? () =>
+                      sendAgent(pendingAgent.current.get(run.id)!.draft).catch(
+                        (e) => setError(e.message),
+                      )
+                  : undefined
+              }
+            />
+          ))}
+          {detail.generations.length === 0 && agentRuns.length === 0 ? (
             <div className="conversation-empty">开始创作</div>
           ) : (
             detail.generations.map((g) => (
@@ -584,7 +915,32 @@ function Workspace({ initial }: { initial: ProjectDetail }) {
                 assets={detail.assets}
                 disabled={active || busy}
                 onReference={(a) => setReference(a)}
-                onRetry={() => {
+                onRetry={async () => {
+                  if (g.model === "gpt25") {
+                    setBusy(true);
+                    const retryKey =
+                      retryKeys.current.get(g.id) || crypto.randomUUID();
+                    retryKeys.current.set(g.id, retryKey);
+                    try {
+                      await api("/api/generations", {
+                        method: "POST",
+                        body: JSON.stringify({
+                          projectId,
+                          requestKey: retryKey,
+                          prompt: g.prompt,
+                          model: "gpt25",
+                          resolution: g.config.resolution,
+                          ratio: g.config.ratio,
+                          referenceAssetIds: g.config.referenceAssetIds || [],
+                        }),
+                      });
+                      retryKeys.current.delete(g.id);
+                      await refresh();
+                    } finally {
+                      setBusy(false);
+                    }
+                    return;
+                  }
                   setRestore({
                     prompt: g.prompt,
                     reference: g.reference_asset_id
@@ -603,6 +959,11 @@ function Workspace({ initial }: { initial: ProjectDetail }) {
             ))
           )}
         </div>
+        {agentConnection && (
+          <div className="workspace-alert" role="status">
+            {agentConnection}
+          </div>
+        )}
         {error && (
           <div className="workspace-alert" role="alert">
             {error}
@@ -614,7 +975,12 @@ function Workspace({ initial }: { initial: ProjectDetail }) {
         <div className="composer-dock">
           <Composer
             projectId={projectId}
-            busy={active || busy}
+            busy={
+              active || busy || agentRuns.some((r) => r.status === "running")
+            }
+            onAgentSend={sendAgent}
+            onUploaded={addAsset}
+            onModeChange={setMode}
             onSend={send}
             initialSettings={initial.project.model_settings}
             externalSettings={externalSettings}
@@ -650,7 +1016,7 @@ function Workspace({ initial }: { initial: ProjectDetail }) {
     </main>
   );
 }
-function GenerationMessage({
+export function GenerationMessage({
   generation: g,
   assets,
   disabled,
@@ -662,7 +1028,7 @@ function GenerationMessage({
   assets: Record<string, Asset>;
   disabled: boolean;
   onReference: (asset: Asset) => void;
-  onRetry: () => void;
+  onRetry: () => void | Promise<void>;
   onSaveRetry: () => Promise<void>;
 }) {
   const [confirm, setConfirm] = useState(false),
@@ -684,9 +1050,13 @@ function GenerationMessage({
       )}
       <p className="message-prompt">{g.prompt}</p>
       <div className="message-config">
-        <ModelIcon model={g.model} size={14} />
-        {g.model === "nano" ? "Nano Banana 2" : "GPT Image2"} ·{" "}
-        {g.config.resolution} · {g.config.ratio}
+        <ModelIcon model={g.model === "gpt25" ? "gpt" : g.model} size={14} />
+        {g.model === "nano"
+          ? "Nano Banana 2"
+          : g.model === "gpt25"
+            ? "GPT Image 2.5"
+            : "GPT Image2"}{" "}
+        · {g.config.resolution} · {g.config.ratio}
       </div>
       <div className="message-results">
         {g.outputs.map(
@@ -741,7 +1111,7 @@ function GenerationMessage({
         <div className="regenerate">
           <button
             title="重新生成"
-            disabled={disabled}
+            disabled={disabled || saving}
             onClick={() => setConfirm(!confirm)}
           >
             <RotateCw size={16} />
@@ -751,12 +1121,25 @@ function GenerationMessage({
             <div className="retry-confirm">
               将复用本次输入，发送后可能再次计费。
               <button
-                onClick={() => {
-                  onRetry();
-                  setConfirm(false);
+                disabled={disabled || saving}
+                onClick={async () => {
+                  setSaving(true);
+                  setSaveError("");
+                  try {
+                    await onRetry();
+                    setConfirm(false);
+                  } catch (e) {
+                    setSaveError((e as Error).message);
+                  } finally {
+                    setSaving(false);
+                  }
                 }}
               >
-                填入输入框
+                {saving
+                  ? "提交中…"
+                  : g.model === "gpt25"
+                    ? "确认使用 GPT Image 2.5 重新生成"
+                    : "填入输入框"}
               </button>
             </div>
           )}

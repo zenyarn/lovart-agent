@@ -18,7 +18,7 @@ vi.mock("@xyflow/react", () => ({
 }));
 vi.mock("../composer", () => ({ Composer: () => null }));
 vi.mock("../model-icon", () => ({ ModelIcon: () => null }));
-vi.mock("@/lib/client-api", () => ({ api: mocks.api }));
+vi.mock("@/lib/client-api", () => ({ api: (path:string,options?:RequestInit)=>path.endsWith("/agent")?Promise.resolve({runs:[]}):mocks.api(path,options) }));
 afterEach(() => {
   cleanup();
   vi.useRealTimers();

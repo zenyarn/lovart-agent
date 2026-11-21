@@ -16,6 +16,11 @@ import { allowedRatios, type Model, type Resolution } from "@/lib/models";
 import type { Asset, Settings } from "@/lib/types";
 import { api } from "@/lib/client-api";
 
+export type AgentDraft = {
+  prompt: string;
+  attachments: Asset[];
+  requestKey: string;
+};
 export type Draft = {
   prompt: string;
   reference?: Asset;
@@ -32,6 +37,9 @@ type Props = {
   onPick?: () => void;
   hasImages?: boolean;
   onSend: (draft: Draft) => Promise<void>;
+  onAgentSend?: (draft: AgentDraft) => Promise<void>;
+  onUploaded?: (asset: Asset) => Promise<void>;
+  onModeChange?: (mode: "agent" | "image") => void;
   initialSettings?: Record<string, Settings>;
   externalSettings?: Record<string, Settings>;
   onSettings?: (settings: Record<string, Settings>) => void;
@@ -43,6 +51,8 @@ const defaults: Record<Model, Settings> = {
 };
 export function Composer(props: Props) {
   const { selectedReference, onReferenceUsed } = props;
+  const [mode, setMode] = useState<"agent" | "image">("image");
+  const [attachments, setAttachments] = useState<Asset[]>([]);
   const [ready, setReady] = useState(false);
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- Keep server-rendered controls inert until event handlers are installed.
@@ -55,9 +65,9 @@ export function Composer(props: Props) {
     ...defaults,
     ...props.initialSettings,
   });
-  const [menu, setMenu] = useState<"reference" | "config" | "model" | null>(
-      null,
-    ),
+  const [menu, setMenu] = useState<
+      "reference" | "config" | "model" | "mode" | null
+    >(null),
     [uploading, setUploading] = useState(false),
     [sending, setSending] = useState(false),
     [error, setError] = useState("");
@@ -92,11 +102,16 @@ export function Composer(props: Props) {
     valid = allowedRatios(model, config.resolution).includes(config.ratio),
     storageKey = `lovart-draft:${props.projectId || `home:${props.ownerId || "local"}`}`;
   useEffect(() => {
+    const rememberedMode = localStorage.getItem(`${storageKey}:mode`);
+    if (rememberedMode === "agent" && props.onAgentSend) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Restore browser mode preference after hydration.
+      setMode("agent");
+      props.onModeChange?.("agent");
+    }
     const stored = localStorage.getItem(storageKey);
     if (stored)
       try {
         const draft = JSON.parse(stored);
-        // eslint-disable-next-line react-hooks/set-state-in-effect -- Restore browser storage after hydration.
         setPrompt(draft.prompt || "");
         requestKey.current = draft.requestKey || "";
         if (draft.model === "nano" || draft.model === "gpt")
@@ -108,6 +123,8 @@ export function Composer(props: Props) {
       // eslint-disable-next-line react-hooks/exhaustive-deps -- This counter invalidates async requests, not a DOM ref.
       recoveryVersion.current++;
     };
+    // Restore mode once for this project, not on parent callback identity changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storageKey, recoverReference]);
   useEffect(() => {
     if (props.externalSettings && !requestKey.current) {
@@ -126,22 +143,30 @@ export function Composer(props: Props) {
   }, [props.externalSettings, storageKey]);
   useEffect(() => {
     if (selectedReference && !editingLocked) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- Consume an explicit selection from the external canvas.
-      setReference(selectedReference);
+      if (mode === "agent")
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- Consume an explicit external canvas selection.
+        setAttachments((old) =>
+          old.some((a) => a.id === selectedReference.id)
+            ? old
+            : [...old, selectedReference].slice(0, 20),
+        );
+      else setReference(selectedReference);
       setPendingReferenceId(undefined);
       setReferenceError("");
-      let stored = {};
-      try {
-        stored = JSON.parse(localStorage.getItem(storageKey) || "{}");
-      } catch {}
-      localStorage.setItem(
-        storageKey,
-        JSON.stringify({ ...stored, referenceId: selectedReference.id }),
-      );
+      if (mode === "image") {
+        let stored = {};
+        try {
+          stored = JSON.parse(localStorage.getItem(storageKey) || "{}");
+        } catch {}
+        localStorage.setItem(
+          storageKey,
+          JSON.stringify({ ...stored, referenceId: selectedReference.id }),
+        );
+      }
       onReferenceUsed?.();
       setMenu(null);
     }
-  }, [selectedReference, onReferenceUsed, storageKey, editingLocked]);
+  }, [selectedReference, onReferenceUsed, storageKey, editingLocked, mode]);
   useEffect(() => {
     if (
       props.restoreDraft &&
@@ -152,6 +177,9 @@ export function Composer(props: Props) {
       if (props.restoreDraft.prompt !== undefined)
         // eslint-disable-next-line react-hooks/set-state-in-effect -- Restore history only after an explicit retry action.
         setPrompt(props.restoreDraft.prompt);
+      setMode("image");
+      props.onModeChange?.("image");
+      localStorage.setItem(`${storageKey}:mode`, "image");
       setReference(props.restoreDraft.reference);
       setPendingReferenceId(undefined);
       setReferenceError("");
@@ -165,7 +193,9 @@ export function Composer(props: Props) {
       requestKey.current = "";
       textarea.current?.focus();
     }
-  }, [props.restoreDraft, editingLocked]);
+    // Explicit history restore should not repeat on callback identity changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.restoreDraft, editingLocked, storageKey]);
   useEffect(() => {
     function close(e: MouseEvent) {
       if (root.current && !root.current.contains(e.target as Node))
@@ -204,6 +234,10 @@ export function Composer(props: Props) {
     remember(prompt, reference, next);
     props.onSettings?.(next);
   }
+  async function uploadMany(files: File[]) {
+    if (editingLocked || props.busy) return;
+    for (const f of files.slice(0, 20 - attachments.length)) await upload(f);
+  }
   async function upload(f?: File) {
     if (!f) return;
     if (f.size > 10 * 1024 * 1024) {
@@ -221,8 +255,13 @@ export function Composer(props: Props) {
         method: "POST",
         body,
       });
-      setReference(data.asset);
-      remember(prompt, data.asset);
+      if (mode === "agent")
+        setAttachments((old) => [...old, data.asset].slice(0, 20));
+      else {
+        setReference(data.asset);
+        remember(prompt, data.asset);
+      }
+      await props.onUploaded?.(data.asset);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -231,6 +270,29 @@ export function Composer(props: Props) {
     }
   }
   async function send() {
+    if (mode === "agent" && props.onAgentSend) {
+      if (!prompt.trim() || editingLocked || props.busy) return;
+      const draft = {
+        prompt: prompt.trim(),
+        attachments,
+        requestKey: crypto.randomUUID(),
+      };
+      setPrompt("");
+      setAttachments([]);
+      setReference(undefined);
+      setError("");
+      setMenu(null);
+      setSending(true);
+      localStorage.removeItem(storageKey);
+      try {
+        await props.onAgentSend(draft);
+      } catch (e) {
+        setError((e as Error).message);
+      } finally {
+        setSending(false);
+      }
+      return;
+    }
     if (
       !prompt.trim() ||
       editingLocked ||
@@ -264,6 +326,21 @@ export function Composer(props: Props) {
     <div
       inert={editingLocked}
       ref={root}
+      onDragOver={(e) => {
+        if (mode === "agent") e.preventDefault();
+      }}
+      onDrop={(e) => {
+        if (mode === "agent") {
+          e.preventDefault();
+          void uploadMany(Array.from(e.dataTransfer.files));
+        }
+      }}
+      onPaste={(e) => {
+        if (mode === "agent" && e.clipboardData.files.length) {
+          e.preventDefault();
+          void uploadMany(Array.from(e.clipboardData.files));
+        }
+      }}
       className={`composer ${props.home ? "composer-home" : ""}`}
     >
       <input
@@ -271,10 +348,62 @@ export function Composer(props: Props) {
         disabled={editingLocked}
         ref={file}
         type="file"
-        accept="image/png,image/jpeg,image/webp"
-        onChange={(e) => upload(e.target.files?.[0])}
+        accept={
+          mode === "agent"
+            ? "image/png,image/jpeg,image/webp,.md,.markdown"
+            : "image/png,image/jpeg,image/webp"
+        }
+        multiple={mode === "agent"}
+        onChange={(e) =>
+          mode === "agent"
+            ? void uploadMany(Array.from(e.target.files || []))
+            : void upload(e.target.files?.[0])
+        }
       />
-      {!props.home && (
+      {mode === "agent" && (
+        <div className="agent-attachments">
+          {attachments.map((a, i) => (
+            <div className="attachment-chip" key={a.id}>
+              <a
+                href={`/api/assets/${a.id}?preview=1`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {a.mime.startsWith("image/") ? (
+                  <>
+                    <img
+                      src={a.url}
+                      alt={`图${attachments.slice(0, i + 1).filter((x) => x.mime.startsWith("image/")).length}`}
+                    />
+                    <span>
+                      图
+                      {
+                        attachments
+                          .slice(0, i + 1)
+                          .filter((x) => x.mime.startsWith("image/")).length
+                      }
+                    </span>
+                  </>
+                ) : (
+                  <span title={a.name}>{a.name || "Markdown 文件"}</span>
+                )}
+              </a>
+              <button
+                title="移除附件"
+                onClick={() =>
+                  setAttachments((old) => old.filter((x) => x.id !== a.id))
+                }
+              >
+                <X size={14} />
+              </button>
+              <a aria-label="下载附件" href={`/api/assets/${a.id}?download=1`}>
+                ↓
+              </a>
+            </div>
+          ))}
+        </div>
+      )}
+      {!props.home && mode === "image" && (
         <div className="reference-row">
           {reference && (
             <div className="reference-thumb">
@@ -371,12 +500,50 @@ export function Composer(props: Props) {
           {error}
         </p>
       )}
-      {!valid && (
+      {mode === "image" && !valid && (
         <p className="inline-error">
           当前分辨率不支持 {config.ratio}，请选择其他比例。
         </p>
       )}
       <div className="composer-toolbar">
+        {!props.home && props.onAgentSend && (
+          <button
+            className="mode-trigger"
+            aria-label={`模式：${mode === "agent" ? "Agent" : "生图"}`}
+            aria-haspopup="menu"
+            aria-expanded={menu === "mode"}
+            disabled={editingLocked || props.busy}
+            onClick={() => setMenu(menu === "mode" ? null : "mode")}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                e.preventDefault();
+                setMenu("mode");
+                requestAnimationFrame(() =>
+                  root.current
+                    ?.querySelector<HTMLButtonElement>('[role="menuitemradio"]')
+                    ?.focus(),
+                );
+              }
+            }}
+          >
+            {mode === "agent" ? "Agent" : "生图"}
+            <ChevronDown size={14} />
+          </button>
+        )}
+        {mode === "agent" && (
+          <>
+            <span className="agent-planning">Agent自动规划</span>
+            <button
+              className="attachment-trigger"
+              disabled={editingLocked || props.busy}
+              onClick={() => file.current?.click()}
+            >
+              <Plus size={16} />
+              附件
+            </button>
+          </>
+        )}
+
         {props.home ? (
           <button
             className="icon-button"
@@ -386,7 +553,7 @@ export function Composer(props: Props) {
           >
             {uploading ? <span className="spinner" /> : <Plus size={25} />}
           </button>
-        ) : (
+        ) : mode === "image" ? (
           <>
             <span className="image-mode">
               <ImagePlus size={20} />
@@ -407,9 +574,9 @@ export function Composer(props: Props) {
               <ChevronDown size={14} />
             </button>
           </>
-        )}
+        ) : null}
         <div className="toolbar-spacer" />
-        {!props.home && (
+        {!props.home && mode === "image" && (
           <button
             className="icon-button model-trigger"
             disabled={editingLocked}
@@ -427,7 +594,7 @@ export function Composer(props: Props) {
             editingLocked ||
             !!pendingReferenceId ||
             props.busy ||
-            !valid
+            (mode === "image" && !valid)
           }
           onClick={send}
         >
@@ -438,6 +605,53 @@ export function Composer(props: Props) {
           )}
         </button>
       </div>
+      {menu === "mode" && (
+        <div
+          className="popover mode-menu"
+          role="menu"
+          aria-label="选择模式"
+          onKeyDown={(e) => {
+            const items = Array.from(
+              e.currentTarget.querySelectorAll<HTMLButtonElement>("button"),
+            );
+            const index = items.indexOf(
+              document.activeElement as HTMLButtonElement,
+            );
+            if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+              e.preventDefault();
+              items[
+                (index + (e.key === "ArrowDown" ? 1 : items.length - 1)) %
+                  items.length
+              ]?.focus();
+            }
+            if (e.key === "Escape") {
+              setMenu(null);
+              root.current
+                ?.querySelector<HTMLButtonElement>(".mode-trigger")
+                ?.focus();
+            }
+          }}
+        >
+          {(["agent", "image"] as const).map((m) => (
+            <button
+              key={m}
+              role="menuitemradio"
+              aria-checked={mode === m}
+              ref={(el) => {
+                if (el && mode === m) el.focus();
+              }}
+              onClick={() => {
+                setMode(m);
+                localStorage.setItem(`${storageKey}:mode`, m);
+                props.onModeChange?.(m);
+                setMenu(null);
+              }}
+            >
+              {m === "agent" ? "Agent" : "生图"}
+            </button>
+          ))}
+        </div>
+      )}
       {menu === "reference" && (
         <div className="popover reference-menu">
           <button onClick={() => file.current?.click()}>

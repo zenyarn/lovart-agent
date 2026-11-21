@@ -261,3 +261,56 @@ it("locks prompt edits during upload and preserves the current draft when upload
     JSON.parse(localStorage.getItem("lovart-draft:upload-draft")!),
   ).toMatchObject({ prompt: "keep this prompt", referenceId: "uploaded" });
 });
+it("switches the shared input to Agent using keyboard and hides manual configuration", async () => {
+  const user = userEvent.setup();
+  render(
+    <Composer projectId="agent-test" onSend={vi.fn()} onAgentSend={vi.fn()} />,
+  );
+  const mode = screen.getByRole("button", { name: "模式：生图" });
+  await user.click(mode);
+  await user.keyboard("{ArrowDown}{Enter}");
+  expect(screen.getByText("Agent自动规划")).toBeTruthy();
+  expect(screen.queryByTitle("切换生图模型")).toBeNull();
+  expect(screen.queryByRole("button", { name: "1K · 1:1" })).toBeNull();
+});
+it("clears Agent text immediately while the submission is pending", async () => {
+  const user = userEvent.setup();
+  let resolve!: () => void;
+  const send = vi.fn(
+    () =>
+      new Promise<void>((r) => {
+        resolve = r;
+      }),
+  );
+  render(
+    <Composer projectId="agent-clear" onSend={vi.fn()} onAgentSend={send} />,
+  );
+  await user.click(screen.getByRole("button", { name: "模式：生图" }));
+  await user.click(screen.getByRole("menuitemradio", { name: "Agent" }));
+  await user.type(screen.getByRole("textbox"), "make coffee");
+  await user.click(screen.getByRole("button", { name: "发送生成请求" }));
+  expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("");
+  expect(
+    (screen.getByRole("button", { name: "模式：Agent" }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
+  await act(async () => resolve());
+});
+it('accepts dropped Markdown and pasted image files through the shared attachment path', async () => {
+  const {api}=await import('@/lib/client-api');
+  vi.mocked(api).mockResolvedValueOnce({asset:{id:'md',name:'brief.md',mime:'text/markdown',url:'/md',width:0,height:0}}).mockResolvedValueOnce({asset:{id:'img',mime:'image/png',url:'/img',width:10,height:20}});
+  const send=vi.fn().mockResolvedValue(undefined);
+  const user=userEvent.setup();
+  render(<Composer projectId="drop-paste" onSend={vi.fn()} onAgentSend={send}/>);
+  await user.click(screen.getByRole('button',{name:'模式：生图'}));
+  await user.click(screen.getByRole('menuitemradio',{name:'Agent'}));
+  fireEvent.drop(screen.getByRole('textbox'),{dataTransfer:{files:[new File(['# article'],'brief.md',{type:'text/markdown'})]}});
+  await waitFor(()=>expect(screen.getByText('brief.md')).toBeTruthy());
+  fireEvent.paste(screen.getByRole('textbox'),{clipboardData:{files:[new File(['png'],'photo.png',{type:'image/png'})]}});
+  await waitFor(()=>expect(screen.getByAltText('图1')).toBeTruthy());
+  await user.type(screen.getByRole('textbox'),'use both');
+  await user.click(screen.getByRole('button',{name:'发送生成请求'}));
+  expect(send.mock.calls[0][0].attachments.map((a:{id:string})=>a.id)).toEqual(['md','img']);
+  expect(screen.queryByText('brief.md')).toBeNull();
+  expect(screen.queryByAltText('图1')).toBeNull();
+});
