@@ -68,3 +68,15 @@ GPT 1K 可额外传 background=`auto|opaque|transparent`。不支持 quality、n
 ## 数据访问
 
 浏览器只有表级/列级 SELECT + owner RLS，业务写入只能通过已鉴权的服务端。RPC 仅授予 service_role，使用 security invoker 和空 search_path。Storage 私有，客户端只允许读取自己 UID 目录；上传由服务端控制。结果下载拒绝内网、非 HTTPS、超限响应及无效图片；重定向再次校验，TLS 连接固定已校验 IP。
+
+## Pi Agent 扩展
+
+- `POST /api/projects/:id/agent`：`{requestKey,prompt,attachmentIds}`，UUID 幂等键、最多20个有序当前项目附件。返回安全的运行摘要，后台执行 Pi 循环；完整模型 transcript 不返回浏览器。
+- `GET /api/projects/:id/agent`：当前项目会话历史。加 `?stream=1` 返回 SSE，`data` 为 `{runs}` 持久快照；断线可重连，保留已有事件。
+- `POST /api/assets`：现有 multipart 接口新增 `.md/.markdown`，必须指定项目；UTF-8、非空、最大256KiB。图片仍按原10MiB上限和实际像素验证。
+- `GET /api/assets/:id?preview=1`：Markdown 返回 text/plain、nosniff、CSP sandbox；图片跳转私有签名预览。`?download=1` 保留原文件名下载。
+- `POST /api/projects/:id/canvas`：`{assetId,nodeId,x?,y?}`，把本项目已有图片放入画布；nodeId 重复请求幂等。
+- `PUT /api/projects/:id/canvas`：节点快照新增 width/height；删除快照中缺失的成图节点，保留素材。revision 校验与等比约束由事务执行。
+- `POST /api/generations`：新增 `model=gpt25` 的项目内重新生成契约，`referenceAssetIds` 为有序数组；有图走 Flare 图生图并传 input_urls，无图走文生图。旧 nano/gpt 契约保持不变。
+
+所有接口复用认证和 owner/project 归属检查；写接口保留同源检查。仅服务端持有 Kimi、KIE 与 Supabase secret key。

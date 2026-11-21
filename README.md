@@ -2,14 +2,15 @@
 
 [![CI](https://github.com/zenyarn/lovart-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/zenyarn/lovart-agent/actions/workflows/ci.yml)
 
-以 Lovart 的画布交互为参考，使用 **Next.js + Supabase + React Flow** 实现的个人图像生成项目。用户输入提示词、上传或选择参考图，通过 **Nano Banana 2 / GPT Image2** 生成图片，并在画布中管理结果。
+以 Lovart 的画布交互为参考，使用 **Next.js + Supabase + React Flow** 实现的个人图像生成项目。用户输入提示词、上传或选择参考图，使用原有 **Nano Banana 2 / GPT Image2** 生图，或切换到 **Pi Agent + Kimi** 理解图片和文章、调用 **GPT Image 2.5 Flare** 生成结果。
 
 ![真实图生图结果：将蓝色陶瓷杯修改为绿色](docs/images/setup/app-live-done.png)
 
 ## 功能
 
 - **项目工作流**：首页提示词与单图上传，最近项目、全部项目、项目重命名；发送后自动进入画布。
-- **交互画布**：图片节点拖动、平移缩放、首次结果自动适配、图片下载；位置与视口自动保存。
+- **交互画布**：图片拖动、等比缩放、复制粘贴、Delete/Backspace 删除节点、图片下载；节点与视口自动保存，删除节点保留素材。
+- **Agent 模式**：原右侧输入框切换模式；有序多图与 Markdown 附件、真实看图、五工具规划、思考与工具事件流、Markdown 回复。
 - **生成面板**：320–620px 拖动调宽、移动端切换；两种模型独立配置、单图参考、任务历史和手动重试。
 - **可恢复生成**：任务与占位节点持久化；刷新恢复查询；成功结果搬运至私有 Storage，保存失败只重试保存。
 - **数据隔离**：邮箱准入、Supabase Auth、owner RLS、私有图片签名访问；密钥仅在服务端使用。
@@ -49,7 +50,7 @@ pnpm install --frozen-lockfile
 cp .env.example .env
 ```
 
-在 `.env` 填入自己的 Supabase URL、publishable key、服务端 secret key、KIE API key、准入邮箱；已有配置时不要覆盖 `.env`。按 [Supabase 初始化说明](docs/api/supabase-setup.md) 创建表、私有 Bucket 并配置认证回跳，然后运行：
+在 `.env` 填入自己的 Supabase URL、publishable key、服务端 secret key、KIE API key、Kimi API key/接入地址、准入邮箱；已有配置时不要覆盖 `.env`。按 [Supabase 初始化说明](docs/api/supabase-setup.md) 创建表、私有 Bucket 并配置认证回跳，按时间顺序应用 `supabase/migrations`，并在私有 Bucket 的允许类型中加入 `text/markdown`。然后运行：
 
 ```bash
 pnpm dev
@@ -60,7 +61,7 @@ pnpm dev
 ## 验证与运行
 
 ```bash
-pnpm test       # 53 项单元/数据库/组件测试
+pnpm test       # 单元/数据库/组件测试
 pnpm typecheck
 pnpm lint
 pnpm build
@@ -69,12 +70,15 @@ pnpm start     # 生产模式，先停止占用 3000 端口的开发进程
 
 已完成真实首页上传 → 模型受理 → 画布轮询 → 私有存储 → 图片显示的完整链路。四项独立 Chrome 测试验证页面跳转、图片加载、模型配置、参考图选择、面板宽度、移动布局与刷新恢复。浏览器测试需要真实已配置的测试环境，见 [运行与测试说明](docs/development.md)。CI 不持有真实服务密钥，也不会触发收费生成。
 
+Agent 默认使用21秒模型请求间隔以适配低额度 Kimi 账户，可设置 `KIMI_REQUEST_INTERVAL_MS`。多实例部署需要共享限流和支持长运行的任务环境。
+
 这是个人本地版。正式公网部署、SMTP、Webhook 和后台定时任务按部署环境另行配置；当前关闭浏览器后任务保留，重新打开恢复查询。
 
 ## 项目文档
 
 - [需求文档](docs/prd.md) · [进度看板](docs/progress.md)
 - [接口契约](docs/api/app-api.md) · [模型对接说明](docs/api/integration-plan.md)
+- [Pi Agent 验收记录](docs/agent-verification.md)
 - [验收记录](docs/verification.md) · [独立审核与已知小问题](docs/review.md)
 - [本地运行与维护](docs/development.md)
 
