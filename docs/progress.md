@@ -82,3 +82,10 @@
 ## 公开发布
 
 2026-11-20：公开仓库 https://github.com/zenyarn/lovart-agent 已创建，main 已推送，匿名访问 HTTP 200。首轮 CI [44718603657](https://github.com/zenyarn/lovart-agent/actions/runs/44718603657) 全部通过。个人部署信息不进入公开历史，原阶段历史保留于本机。
+
+## 2026-11-21 Pi Agent 扩展（进行中）
+- 分支：feat/pi-agent-skills，基线：8a235e4。
+- 用户已授权完整 Agent 目标；设计和逐项验收计划已建立。
+- 正在验证模型契约与扩展持久化；尚未完成 Agent 真实联调。
+
+2026-11-21 联调进展：Kimi Moonshot 接入、GPT Image 2.5 Flare 文生图与参考图编辑均已真实成功。Markdown 文章末尾关键词、多图顺序与真实看图通过 Chrome 验证；缩放、拖动已核对数据库。远端迁移已应用，Bucket 保持私有并允许 Markdown。独立审核发现的画布删除合并、本地草稿恢复、失败工具历史、重新生成语义问题均已修复并增加回归测试。当前进行剪贴板、删除刷新与窄屏最终验收。实际 Kimi 账户出现 3 RPM 限制，已加入跨项目进程内节流和可恢复错误；未额外重复生图。

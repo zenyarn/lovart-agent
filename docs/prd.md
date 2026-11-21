@@ -119,3 +119,7 @@ Nano Banana 参考图中的配置项如下：
 ## 调研参考
 
 - [Lovart 初步调研](lovart-research.md)。其中的最小闭环建议尚未确认为第一版需求。
+
+## 2026-11-21：已确认 Pi Agent 扩展
+
+用户已指定在原右侧对话框接入 Pi + Kimi，增加 Agent/生图模式、多图与 Markdown 附件、真实看图和工具调用、流式消息、画布缩放复制删除，以及 GPT Image 2.5 Flare 生成。详细已确认体验与验收标准见 [设计](superpowers/specs/2026-11-21-pi-agent-design.md)，执行记录见 [计划](superpowers/plans/2026-11-21-pi-agent.md)。本轮不包含 Skill 管理。
