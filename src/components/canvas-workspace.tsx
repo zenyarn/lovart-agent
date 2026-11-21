@@ -240,9 +240,16 @@ function Workspace({ initial }: { initial: ProjectDetail }) {
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => void save(), 800);
   }, [draftKey, save]);
+  async function changeViewport(action: () => Promise<boolean>) {
+    await action();
+    viewportRef.current = flow.getViewport();
+    setZoom(viewportRef.current.zoom);
+    scheduleSave();
+  }
   const refresh = useCallback(async () => {
     const next = await api<ProjectDetail>(`/api/projects/${projectId}`);
     if (!mounted.current || next.project.revision < revision.current) return;
+    const previousViewport = current.current.project.viewport;
     const previousAssets = current.current.assets;
     current.current = next;
     setDetail((old) => ({
@@ -266,10 +273,18 @@ function Workspace({ initial }: { initial: ProjectDetail }) {
       });
     } else {
       if (revision.current !== next.project.revision) {
-        viewportRef.current = next.project.viewport;
+        // A new generation increments the revision without changing the viewport.
+        // Preserve local automatic framing unless another client actually changed it.
+        if (
+          previousViewport.x !== next.project.viewport.x ||
+          previousViewport.y !== next.project.viewport.y ||
+          previousViewport.zoom !== next.project.viewport.zoom
+        ) {
+          viewportRef.current = next.project.viewport;
+          void flow.setViewport(next.project.viewport);
+        }
         settingsRef.current = next.project.model_settings;
         setExternalSettings(next.project.model_settings);
-        void flow.setViewport(next.project.viewport);
       }
       revision.current = next.project.revision;
       const updated = toNodes(next, false);
@@ -789,9 +804,10 @@ function Workspace({ initial }: { initial: ProjectDetail }) {
             viewportRef.current = v;
             setZoom(v.zoom);
             if (
-              previous.x !== v.x ||
-              previous.y !== v.y ||
-              previous.zoom !== v.zoom
+              _e &&
+              (previous.x !== v.x ||
+                previous.y !== v.y ||
+                previous.zoom !== v.zoom)
             )
               scheduleSave();
           }}
@@ -814,18 +830,26 @@ function Workspace({ initial }: { initial: ProjectDetail }) {
           </div>
         )}
         <footer className="canvas-controls">
-          <button aria-label="缩小" onClick={() => flow.zoomOut()}>
+          <button
+            aria-label="缩小"
+            onClick={() => void changeViewport(() => flow.zoomOut())}
+          >
             <Minus size={17} />
           </button>
           <span>{Math.round(zoom * 100)}%</span>
-          <button aria-label="放大" onClick={() => flow.zoomIn()}>
+          <button
+            aria-label="放大"
+            onClick={() => void changeViewport(() => flow.zoomIn())}
+          >
             <Plus size={17} />
           </button>
           <i />
           <button
             title="适配画布"
             onClick={() =>
-              flow.fitView({ padding: 0.25, maxZoom: 1, duration: 300 })
+              void changeViewport(() =>
+                flow.fitView({ padding: 0.25, maxZoom: 1, duration: 300 }),
+              )
             }
           >
             <Expand size={17} />

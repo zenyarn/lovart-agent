@@ -7,10 +7,18 @@ const mocks = vi.hoisted(() => ({
   flow: { fitView: vi.fn(), setViewport: vi.fn() },
   api: vi.fn(),
   dragStop: (() => {}) as () => void,
+  moveEnd: ((
+    _e: unknown,
+    _v: { x: number; y: number; zoom: number },
+  ) => {}) as (e: unknown, v: { x: number; y: number; zoom: number }) => void,
 }));
 vi.mock("@xyflow/react", () => ({
   ReactFlowProvider: ({ children }: { children: React.ReactNode }) => children,
-  ReactFlow: (props: { onNodeDragStop: () => void }) => {
+  ReactFlow: (props: {
+    onNodeDragStop: () => void;
+    onMoveEnd: typeof mocks.moveEnd;
+  }) => {
+    mocks.moveEnd = props.onMoveEnd;
     mocks.dragStop = props.onNodeDragStop;
     return null;
   },
@@ -18,7 +26,12 @@ vi.mock("@xyflow/react", () => ({
 }));
 vi.mock("../composer", () => ({ Composer: () => null }));
 vi.mock("../model-icon", () => ({ ModelIcon: () => null }));
-vi.mock("@/lib/client-api", () => ({ api: (path:string,options?:RequestInit)=>path.endsWith("/agent")?Promise.resolve({runs:[]}):mocks.api(path,options) }));
+vi.mock("@/lib/client-api", () => ({
+  api: (path: string, options?: RequestInit) =>
+    path.endsWith("/agent")
+      ? Promise.resolve({ runs: [] })
+      : mocks.api(path, options),
+}));
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
@@ -174,4 +187,29 @@ it("does not remove another tabs newer draft after an older save resolves", asyn
   localStorage.setItem("lovart-canvas:p", otherDraft);
   await act(async () => finish({ revision: 2 }));
   expect(localStorage.getItem("lovart-canvas:p")).toBe(otherDraft);
+});
+
+it("does not save programmatic viewport changes as user edits during generation", async () => {
+  vi.useFakeTimers();
+  const initial = emptyProject();
+  mocks.api.mockResolvedValue(initial);
+  render(<CanvasWorkspace initial={initial} />);
+  await act(async () => {
+    mocks.moveEnd(null, { x: 20, y: 30, zoom: 0.8 });
+    await vi.advanceTimersByTimeAsync(900);
+  });
+  expect(localStorage.getItem("lovart-canvas:p")).toBeNull();
+  expect(mocks.api.mock.calls.some((c) => c[1]?.method === "PUT")).toBe(false);
+  mocks.api.mockResolvedValue({
+    ...initial,
+    project: { ...initial.project, revision: 1 },
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1000);
+  });
+  expect(mocks.flow.setViewport).not.toHaveBeenCalled();
+  await act(async () => {
+    mocks.moveEnd({ type: "pointerup" }, { x: 25, y: 30, zoom: 0.8 });
+  });
+  expect(localStorage.getItem("lovart-canvas:p")).not.toBeNull();
 });
