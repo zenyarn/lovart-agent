@@ -123,3 +123,7 @@ Nano Banana 参考图中的配置项如下：
 ## 2026-11-21：已确认 Pi Agent 扩展
 
 用户已指定在原右侧对话框接入 Pi + Kimi，增加 Agent/生图模式、多图与 Markdown 附件、真实看图和工具调用、流式消息、画布缩放复制删除，以及 GPT Image 2.5 Flare 生成。详细已确认体验与验收标准见 [设计](superpowers/specs/2026-11-21-pi-agent-design.md)，执行记录见 [计划](superpowers/plans/2026-11-21-pi-agent.md)。本轮不包含 Skill 管理。
+
+## Agent Skill（2026-11-21 用户确认）
+在附件旁提供 Skill 上传、列表、选择和移除；标准 SKILL.md 解析 name/description，保留完整规则，按用户与项目隔离，禁止路径穿越。简介最多两行。用户消息保存本次技能名称；发送立即清空文本、附件、技能，下一条不默认选择。
+提供 wechat-cover：阅读全文提炼主题与短标题，先询问五种风格（极简大字报、杂志封面、插画、科技、孟菲斯），选定后同轮调用已有 GPT Image 2.5 生成四张同风格不同构图的宽幅封面。Chrome 实际验收。
