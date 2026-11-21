@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { sessionClient } from "@/lib/supabase/server";
-import { safeReturnPath, isOwnerEmail } from "@/lib/security";
+import { safeReturnPath } from "@/lib/security";
 export async function GET(request: Request) {
   const url = new URL(request.url),
     code = url.searchParams.get("code");
@@ -11,7 +11,7 @@ export async function GET(request: Request) {
     if (
       !error &&
       data.user?.email_confirmed_at &&
-      isOwnerEmail(data.user.email, process.env.APP_OWNER_EMAILS)
+      data.user.email
     )
       return NextResponse.redirect(
         new URL(safeReturnPath(url.searchParams.get("next")), origin),

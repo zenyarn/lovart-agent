@@ -1,3 +1,4 @@
+import { CreditBalance } from "@/components/credit-balance";
 import Link from "next/link";
 import { pageOwner } from "@/lib/auth";
 import { listProjects } from "@/lib/projects";
@@ -11,7 +12,8 @@ export default async function Projects() {
         <h1>项目</h1>
         <nav>
           <Link href="/protected">返回首页</Link>
-          <Logout />
+          <CreditBalance />
+        <Logout />
         </nav>
       </header>
       <ProjectGrid initial={data.projects} hasMore={data.hasMore} />

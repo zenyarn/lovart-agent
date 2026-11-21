@@ -980,3 +980,5 @@ a:focus-visible {
 .selected-skill button { display:flex; padding:2px; }
 .sent-skill { width:fit-content; margin-left:auto; margin-bottom:7px; }
 .skill-description { width:100%; max-width:100%; min-width:0; white-space:normal; }
+
+.credit-balance { font-size: 12px; color: #50674e; background: #f0f4ed; border-radius: 20px; padding: 6px 10px; white-space: nowrap; }

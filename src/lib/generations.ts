@@ -65,6 +65,8 @@ export async function submitGeneration(
   });
   if (error) {
     const reason = error.message;
+    if (reason.includes("INSUFFICIENT_CREDITS"))
+      throw new AppError(402, "积分不足，每张图片需要 1 积分；暂不支持充值");
     throw new AppError(
       reason.includes("ACTIVE_GENERATION") ||
         reason.includes("IDEMPOTENCY_CONFLICT")

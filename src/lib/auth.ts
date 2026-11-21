@@ -1,7 +1,6 @@
 import "server-only";
 import { ZodError } from "zod";
 import { sessionClient } from "./supabase/server";
-import { isOwnerEmail } from "./security";
 import { redirect } from "next/navigation";
 
 export class AppError extends Error {
@@ -19,11 +18,8 @@ export async function requireOwner() {
     error,
   } = await client.auth.getUser();
   if (error || !user) throw new AppError(401, "请先登录");
-  if (
-    !user.email_confirmed_at ||
-    !isOwnerEmail(user.email, process.env.APP_OWNER_EMAILS)
-  )
-    throw new AppError(403, "当前账号不在访问白名单中");
+  if (!user.email || !user.email_confirmed_at)
+    throw new AppError(403, "请先完成邮箱验证");
   return user;
 }
 export async function pageOwner(next: string) {

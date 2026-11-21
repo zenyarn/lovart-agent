@@ -1,5 +1,6 @@
 /* eslint-disable @next/next/no-img-element -- Private signed assets must not pass through a public image optimization cache. */
 "use client";
+import { CreditBalance } from "@/components/credit-balance";
 import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import {
@@ -736,6 +737,7 @@ function Workspace({ initial }: { initial: ProjectDetail }) {
     >
       <section className="canvas-area">
         <header className="canvas-header">
+          <CreditBalance />
           <Link href="/protected" className="brand-mark" aria-label="返回首页">
             L°
           </Link>

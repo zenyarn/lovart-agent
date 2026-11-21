@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { assertSameOrigin, AppError, errorResponse } from "@/lib/auth";
-import { isOwnerEmail, safeReturnPath } from "@/lib/security";
+import { safeReturnPath } from "@/lib/security";
 import { sessionClient } from "@/lib/supabase/server";
 export async function POST(request: Request) {
   try {
@@ -17,8 +17,6 @@ export async function POST(request: Request) {
     if (!parsed.success)
       throw new AppError(400, "请填写有效邮箱和至少 8 位密码");
     const { email, password, action, next } = parsed.data;
-    if (!isOwnerEmail(email, process.env.APP_OWNER_EMAILS))
-      throw new AppError(403, "该邮箱未获授权");
     const client = await sessionClient();
     if (action === "signup") {
       const callback = new URL(

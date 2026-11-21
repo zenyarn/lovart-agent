@@ -1,3 +1,4 @@
+import { CreditBalance } from "@/components/credit-balance";
 import { pageOwner } from "@/lib/auth";
 import { listProjects } from "@/lib/projects";
 import { ProjectGrid, Logout } from "@/components/project-grid";
@@ -11,6 +12,7 @@ export default async function Protected() {
         <span className="user-avatar">
           {user.email?.slice(0, 1).toUpperCase()}
         </span>
+        <CreditBalance />
         <Logout />
       </header>
       <section className="home-hero">
