@@ -296,21 +296,75 @@ it("clears Agent text immediately while the submission is pending", async () => 
   ).toBe(true);
   await act(async () => resolve());
 });
-it('accepts dropped Markdown and pasted image files through the shared attachment path', async () => {
-  const {api}=await import('@/lib/client-api');
-  vi.mocked(api).mockResolvedValueOnce({asset:{id:'md',name:'brief.md',mime:'text/markdown',url:'/md',width:0,height:0}}).mockResolvedValueOnce({asset:{id:'img',mime:'image/png',url:'/img',width:10,height:20}});
-  const send=vi.fn().mockResolvedValue(undefined);
-  const user=userEvent.setup();
-  render(<Composer projectId="drop-paste" onSend={vi.fn()} onAgentSend={send}/>);
-  await user.click(screen.getByRole('button',{name:'模式：生图'}));
-  await user.click(screen.getByRole('menuitemradio',{name:'Agent'}));
-  fireEvent.drop(screen.getByRole('textbox'),{dataTransfer:{files:[new File(['# article'],'brief.md',{type:'text/markdown'})]}});
-  await waitFor(()=>expect(screen.getByText('brief.md')).toBeTruthy());
-  fireEvent.paste(screen.getByRole('textbox'),{clipboardData:{files:[new File(['png'],'photo.png',{type:'image/png'})]}});
-  await waitFor(()=>expect(screen.getByAltText('图1')).toBeTruthy());
-  await user.type(screen.getByRole('textbox'),'use both');
-  await user.click(screen.getByRole('button',{name:'发送生成请求'}));
-  expect(send.mock.calls[0][0].attachments.map((a:{id:string})=>a.id)).toEqual(['md','img']);
-  expect(screen.queryByText('brief.md')).toBeNull();
-  expect(screen.queryByAltText('图1')).toBeNull();
+it("accepts dropped Markdown and pasted image files through the shared attachment path", async () => {
+  const { api } = await import("@/lib/client-api");
+  vi.mocked(api)
+    .mockResolvedValueOnce({
+      asset: {
+        id: "md",
+        name: "brief.md",
+        mime: "text/markdown",
+        url: "/md",
+        width: 0,
+        height: 0,
+      },
+    })
+    .mockResolvedValueOnce({
+      asset: {
+        id: "img",
+        mime: "image/png",
+        url: "/img",
+        width: 10,
+        height: 20,
+      },
+    });
+  const send = vi.fn().mockResolvedValue(undefined);
+  const user = userEvent.setup();
+  render(
+    <Composer projectId="drop-paste" onSend={vi.fn()} onAgentSend={send} />,
+  );
+  await user.click(screen.getByRole("button", { name: "模式：生图" }));
+  await user.click(screen.getByRole("menuitemradio", { name: "Agent" }));
+  fireEvent.drop(screen.getByRole("textbox"), {
+    dataTransfer: {
+      files: [new File(["# article"], "brief.md", { type: "text/markdown" })],
+    },
+  });
+  await waitFor(() => expect(screen.getByText("brief.md")).toBeTruthy());
+  fireEvent.paste(screen.getByRole("textbox"), {
+    clipboardData: {
+      files: [new File(["png"], "photo.png", { type: "image/png" })],
+    },
+  });
+  await waitFor(() => expect(screen.getByAltText("图1")).toBeTruthy());
+  await user.type(screen.getByRole("textbox"), "use both");
+  await user.click(screen.getByRole("button", { name: "发送生成请求" }));
+  expect(
+    send.mock.calls[0][0].attachments.map((a: { id: string }) => a.id),
+  ).toEqual(["md", "img"]);
+  expect(screen.queryByText("brief.md")).toBeNull();
+  expect(screen.queryByAltText("图1")).toBeNull();
+});
+it("sends the selected skill snapshot and immediately clears it with the prompt", async () => {
+  const { api } = await import("@/lib/client-api");
+  const skill = {
+    id: "77777777-7777-4777-8777-777777777777",
+    name: "wechat-cover",
+    description: "阅读文章并生成封面",
+  };
+  vi.mocked(api).mockResolvedValue({ skills: [skill] });
+  const user = userEvent.setup(),
+    send = vi.fn().mockImplementation(() => new Promise(() => {}));
+  localStorage.setItem("lovart-draft:skill-project:mode", "agent");
+  render(
+    <Composer projectId="skill-project" onSend={vi.fn()} onAgentSend={send} />,
+  );
+  await user.click(await screen.findByRole("button", { name: "Skill" }));
+  await user.click(await screen.findByText("wechat-cover", { exact: true }));
+  expect(screen.getByRole("button", { name: "取消所选技能" })).toBeTruthy();
+  await user.type(screen.getByRole("textbox"), "制作封面");
+  await user.click(screen.getByRole("button", { name: "发送生成请求" }));
+  expect(send.mock.calls[0][0].skill).toEqual(skill);
+  expect(screen.queryByRole("button", { name: "取消所选技能" })).toBeNull();
+  expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("");
 });

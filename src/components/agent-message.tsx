@@ -66,6 +66,9 @@ export function AgentMessage({
   return (
     <article className="agent-message">
       <div className="user-message">
+        {run.skill_name && (
+          <div className="sent-skill">Skill · {run.skill_name}</div>
+        )}
         <div className="message-attachments">
           {run.attachment_ids.map((id, i) => {
             const a = assets[id];

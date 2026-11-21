@@ -16,7 +16,11 @@ import { allowedRatios, type Model, type Resolution } from "@/lib/models";
 import type { Asset, Settings } from "@/lib/types";
 import { api } from "@/lib/client-api";
 
+import { SkillPicker } from "./skill-picker";
+import type { SkillInfo } from "@/lib/skills-parser";
+
 export type AgentDraft = {
+  skill?: SkillInfo;
   prompt: string;
   attachments: Asset[];
   requestKey: string;
@@ -52,6 +56,8 @@ const defaults: Record<Model, Settings> = {
 export function Composer(props: Props) {
   const { selectedReference, onReferenceUsed } = props;
   const [mode, setMode] = useState<"agent" | "image">("image");
+  const [selectedSkill, setSelectedSkill] = useState<SkillInfo>();
+  const [skillBusy, setSkillBusy] = useState(false);
   const [attachments, setAttachments] = useState<Asset[]>([]);
   const [ready, setReady] = useState(false);
   useEffect(() => {
@@ -76,7 +82,8 @@ export function Composer(props: Props) {
     [referenceError, setReferenceError] = useState("");
   const recoveryVersion = useRef(0),
     consumedRestore = useRef<Partial<Draft>>(undefined);
-  const editingLocked = !ready || sending || uploading || recoveringReference;
+  const editingLocked =
+    !ready || sending || uploading || recoveringReference || skillBusy;
   const recoverReference = useCallback(async (id: string) => {
     const version = ++recoveryVersion.current;
     setPendingReferenceId(id);
@@ -275,10 +282,12 @@ export function Composer(props: Props) {
       const draft = {
         prompt: prompt.trim(),
         attachments,
+        skill: selectedSkill,
         requestKey: crypto.randomUUID(),
       };
       setPrompt("");
       setAttachments([]);
+      setSelectedSkill(undefined);
       setReference(undefined);
       setError("");
       setMenu(null);
@@ -362,6 +371,19 @@ export function Composer(props: Props) {
       />
       {mode === "agent" && (
         <div className="agent-attachments">
+          {selectedSkill && (
+            <div className="selected-skill">
+              <span title={selectedSkill.description}>
+                Skill · {selectedSkill.name}
+              </span>
+              <button
+                aria-label="取消所选技能"
+                onClick={() => setSelectedSkill(undefined)}
+              >
+                <X size={14} />
+              </button>
+            </div>
+          )}
           {attachments.map((a, i) => (
             <div className="attachment-chip" key={a.id}>
               <a
@@ -541,6 +563,15 @@ export function Composer(props: Props) {
               <Plus size={16} />
               附件
             </button>
+            {props.projectId && (
+              <SkillPicker
+                projectId={props.projectId}
+                selected={selectedSkill}
+                onSelect={setSelectedSkill}
+                disabled={editingLocked || props.busy}
+                onBusy={setSkillBusy}
+              />
+            )}
           </>
         )}
 

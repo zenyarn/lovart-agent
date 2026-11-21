@@ -423,6 +423,8 @@ function Workspace({ initial }: { initial: ProjectDetail }) {
       id: draft.requestKey,
       prompt: draft.prompt,
       attachment_ids: draft.attachments.map((a) => a.id),
+      skill_id: draft.skill?.id ?? null,
+      skill_name: draft.skill?.name ?? null,
       status: "running",
       events: [],
       error: null,
@@ -451,6 +453,7 @@ function Workspace({ initial }: { initial: ProjectDetail }) {
             requestKey: draft.requestKey,
             prompt: draft.prompt,
             attachmentIds: optimistic.attachment_ids,
+            skillId: optimistic.skill_id,
           }),
         },
       );

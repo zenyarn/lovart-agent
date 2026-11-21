@@ -180,18 +180,8 @@ export function createCanvasTools(owner: string, project: string) {
               isError: true,
             };
           }
-          if (g.status === "persisting" && g.error) {
-            unresolvedGeneration = true;
-            return {
-              ...result({
-                generationId: g.id,
-                status: g.status,
-                error: g.error,
-                instruction: "结果已生成，只能重试保存，不能再次生图",
-              }),
-              isError: true,
-            };
-          }
+          // A successful provider result can hit a transient download/storage failure.
+          // Retry sync for this same generation within the bounded deadline; never resubmit it.
           await new Promise<void>((resolve, reject) => {
             const timer = setTimeout(() => {
               signal?.removeEventListener("abort", abort);
