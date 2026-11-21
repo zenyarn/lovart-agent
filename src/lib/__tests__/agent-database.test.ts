@@ -14,8 +14,8 @@ beforeAll(async () => {
   await db.exec(
     await readFile("supabase/migrations/20261120085234_app.sql", "utf8"),
   );
-  for (const f of (await readdir("supabase/migrations")).filter((f) =>
-    f.endsWith("_pi_agent.sql"),
+  for (const f of (await readdir("supabase/migrations")).filter(
+    (f) => f.endsWith("_pi_agent.sql") || f.endsWith("_agent_skills.sql"),
   ))
     await db.exec(await readFile("supabase/migrations/" + f, "utf8"));
   await db.exec(
@@ -126,4 +126,78 @@ it("begins an idempotent Agent run and prevents concurrent runs", async () => {
       JSON.stringify([a]),
     ]),
   ).rejects.toThrow("IDEMPOTENCY_CONFLICT");
+});
+
+it("isolates skills, snapshots rules and allows idempotent retry after deletion", async () => {
+  await db.exec("update agent_runs set status='completed'");
+  const skill = "77777777-7777-4777-8777-777777777777";
+  const request = "88888888-8888-4888-8888-888888888888";
+  await db.query(
+    "insert into project_skills(id,owner_id,project_id,name,description,body,source) values($1,$2,$3,'wechat-cover','描述','完整规则','完整源文件')",
+    [skill, o, p],
+  );
+  await expect(
+    db.query("select begin_agent_run($1,$2,$3,'test','[]',$4)", [
+      o,
+      p2,
+      request,
+      skill,
+    ]),
+  ).rejects.toThrow("SKILL_NOT_FOUND");
+  const args = [o, p, request, skill];
+  const first = await db.query<{
+    r: { skill_name: string; skill_body: string };
+  }>("select begin_agent_run($1,$2,$3,'test','[]',$4) r", args);
+  expect(first.rows[0].r.skill_name).toBe("wechat-cover");
+  expect(first.rows[0].r.skill_body).toBe("完整规则");
+  await db.query("delete from project_skills where id=$1", [skill]);
+  const retry = await db.query<{ r: { is_new: boolean; skill_name: string } }>(
+    "select begin_agent_run($1,$2,$3,'test','[]',$4) r",
+    args,
+  );
+  expect(retry.rows[0].r.is_new).toBe(false);
+  expect(retry.rows[0].r.skill_name).toBe("wechat-cover");
+  await expect(
+    db.query("select begin_agent_run($1,$2,$3,'test','[]',null)", [
+      o,
+      p,
+      request,
+    ]),
+  ).rejects.toThrow("IDEMPOTENCY_CONFLICT");
+  await db.exec("update agent_runs set status='completed'");
+});
+it("does not expose skill rules or mutation privileges to authenticated clients", async () => {
+  const result = await db.query<{
+    body: boolean;
+    write: boolean;
+    rls: boolean;
+  }>(
+    "select has_column_privilege('authenticated','project_skills','body','select') body, has_table_privilege('authenticated','project_skills','delete') write, (select relrowsecurity from pg_class where oid='project_skills'::regclass) rls",
+  );
+  expect(result.rows[0]).toEqual({ body: false, write: false, rls: true });
+});
+it("enforces owner RLS and rejects cross-owner project skill inserts", async () => {
+  const other = "99999999-9999-4999-8999-999999999999";
+  await db.query("insert into auth.users values($1)", [other]);
+  await db.query(
+    "insert into project_skills(owner_id,project_id,name,description,body,source) values($1,$2,'private-skill','私有','规则','源码')",
+    [o, p],
+  );
+  await expect(
+    db.query(
+      "insert into project_skills(owner_id,project_id,name,description,body,source) values($1,$2,'foreign-skill','私有','规则','源码')",
+      [other, p],
+    ),
+  ).rejects.toThrow();
+  await db.exec(
+    `grant usage on schema auth to authenticated; set role authenticated; set request.jwt.claim.sub='${other}';`,
+  );
+  expect(
+    (await db.query("select id,name from project_skills")).rows,
+  ).toHaveLength(0);
+  await db.exec(`set request.jwt.claim.sub='${o}'`);
+  expect(
+    (await db.query("select id,name from project_skills")).rows,
+  ).toHaveLength(1);
+  await db.exec("reset role");
 });

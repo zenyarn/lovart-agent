@@ -80,3 +80,9 @@ GPT 1K 可额外传 background=`auto|opaque|transparent`。不支持 quality、n
 - `POST /api/generations`：新增 `model=gpt25` 的项目内重新生成契约，`referenceAssetIds` 为有序数组；有图走 Flare 图生图并传 input_urls，无图走文生图。旧 nano/gpt 契约保持不变。
 
 所有接口复用认证和 owner/project 归属检查；写接口保留同源检查。仅服务端持有 Kimi、KIE 与 Supabase secret key。
+
+## 项目 Skill
+- `GET /api/projects/:id/skills`：当前用户的当前项目技能元数据 `{skills:[{id,name,description}]}`，不返回完整规则。
+- `POST /api/projects/:id/skills`：`text/markdown` 原始 SKILL.md，最大64KiB，UTF-8；YAML需name/description，允许其他普通元数据，不支持别名。名称为1–64位小写字母、数字、单连字符。同项目重名409，解析无效400。
+- `DELETE /api/projects/:id/skills/:skillId`：仅删除本用户本项目技能，其他归属404。历史消息快照保持不变。
+- Agent POST新增可选 `skillId`；RPC在同一事务内校验归属并保存 `skill_id/skill_name/skill_body`，幂等比较包含skillId。GET/SSE只返回id/name，不返回完整规则。所选规则进入模型对话历史以支持后续澄清，不作为系统权限。

@@ -14,6 +14,8 @@ export type AgentRun = {
   id: string;
   prompt: string;
   attachment_ids: string[];
+  skill_id?: string | null;
+  skill_name?: string | null;
   status: "running" | "completed" | "failed";
   events: AgentEvent[];
   error: string | null;

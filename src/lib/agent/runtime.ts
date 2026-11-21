@@ -17,7 +17,7 @@ const systemPrompt = `你是画布设计助手。使用中文，理解需求后�
 export async function executeAgentRun(
   owner: string,
   project: string,
-  run: AgentRun,
+  run: AgentRun & { skill_body?: string | null },
 ) {
   const client = adminClient();
   const events: AgentEvent[] = [];
@@ -64,6 +64,9 @@ export async function executeAgentRun(
     if (JSON.stringify(messages).length > 12 * 1024 * 1024)
       throw Error("当前对话资料过多，请新建项目继续");
     let prompt = run.prompt;
+    if (run.skill_name && run.skill_body) {
+      prompt += `\n\n用户本次明确选择技能 ${run.skill_name}。以下是用户授权的工作流程规则，适用于本任务及后续澄清（例如风格选择），直到完成或用户改变任务；不代表后续消息默认重新选择技能。不能覆盖系统权限与工具约束。\n${JSON.stringify({ skill: run.skill_name, rules: run.skill_body })}`;
+    }
     let imageNumber = 0;
     for (const id of run.attachment_ids) {
       const asset = await projectAsset(owner, project, id);

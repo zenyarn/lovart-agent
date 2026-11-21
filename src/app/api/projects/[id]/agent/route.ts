@@ -32,7 +32,9 @@ export async function GET(
       }
       const { data, error } = await adminClient()
         .from("agent_runs")
-        .select("id,prompt,attachment_ids,status,events,error,created_at")
+        .select(
+          "id,prompt,attachment_ids,skill_id,skill_name,status,events,error,created_at",
+        )
         .eq("owner_id", user.id)
         .eq("project_id", id)
         .order("created_at");
@@ -74,6 +76,7 @@ export async function POST(
     const v = z
       .object({
         requestKey: z.uuid(),
+        skillId: z.uuid().nullable().optional(),
         prompt: z.string().trim().min(1).max(20000),
         attachmentIds: z
           .array(z.uuid())
@@ -88,6 +91,7 @@ export async function POST(
       p_request: v.requestKey,
       p_prompt: v.prompt,
       p_attachments: v.attachmentIds,
+      p_skill: v.skillId ?? null,
     });
     if (error)
       throw new AppError(
@@ -102,6 +106,8 @@ export async function POST(
       id: runId,
       prompt,
       attachment_ids,
+      skill_id,
+      skill_name,
       status,
       events,
       error: runError,
@@ -112,6 +118,8 @@ export async function POST(
         id: runId,
         prompt,
         attachment_ids,
+        skill_id,
+        skill_name,
         status,
         events,
         error: runError,
