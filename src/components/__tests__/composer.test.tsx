@@ -368,3 +368,70 @@ it("sends the selected skill snapshot and immediately clears it with the prompt"
   expect(screen.queryByRole("button", { name: "取消所选技能" })).toBeNull();
   expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("");
 });
+
+it("continues editing the latest result with a visible reference instead of text-only generation", async () => {
+  const send = vi.fn().mockResolvedValue(undefined), user = userEvent.setup();
+  const latest = { id: "latest", url: "https://example.com/latest.png", width: 800, height: 600, mime: "image/png" };
+  render(<Composer projectId="edit-chain" latestResult={latest} onSend={send} />);
+  expect(screen.getByAltText("参考图").getAttribute("src")).toBe(latest.url);
+  await user.type(screen.getByRole("textbox"), "把天空的蓝色加深");
+  await user.click(screen.getByRole("button", { name: "发送生成请求" }));
+  expect(send.mock.calls[0][0]).toMatchObject({ reference: latest, editing: true, settings: { ratio: "auto" } });
+});
+it("allows explicit new image creation without inheriting the previous image", async () => {
+  const send = vi.fn().mockResolvedValue(undefined), user = userEvent.setup();
+  render(<Composer projectId="new-image" latestResult={{ id: "latest", url: "https://example.com/a.png", width: 1, height: 1, mime: "image/png" }} onSend={send} />);
+  await user.click(screen.getByRole("button", { name: "新建图片" }));
+  await user.type(screen.getByRole("textbox"), "一只猫");
+  await user.click(screen.getByRole("button", { name: "发送生成请求" }));
+  expect(send.mock.calls[0][0].reference).toBeUndefined();
+  expect(send.mock.calls[0][0].editing).toBe(false);
+});
+it("freezes the editing source when a response is lost even if a newer result appears", async () => {
+  const send = vi.fn().mockRejectedValue(new Error("network")), user = userEvent.setup();
+  const original = { id: "original", url: "https://example.com/original.png", width: 800, height: 600, mime: "image/png" };
+  const view = render(<Composer projectId="frozen-edit" latestResult={original} onSend={send} />);
+  await user.type(screen.getByRole("textbox"), "加深天空");
+  await user.click(screen.getByRole("button", { name: "发送生成请求" }));
+  view.rerender(<Composer projectId="frozen-edit" latestResult={{ ...original, id: "newer" }} onSend={send} />);
+  await user.click(screen.getByRole("button", { name: "发送生成请求" }));
+  expect(send.mock.calls[1][0]).toEqual(send.mock.calls[0][0]);
+});
+it("uses an explicitly selected older image instead of the latest result", async () => {
+  const send = vi.fn().mockResolvedValue(undefined), user = userEvent.setup();
+  const original = { id: "older", url: "https://example.com/older.png", width: 800, height: 600, mime: "image/png" };
+  render(<Composer projectId="explicit-edit" selectedReference={original} latestResult={{ ...original, id: "latest" }} onSend={send} />);
+  await user.type(screen.getByRole("textbox"), "加深天空");
+  await user.click(screen.getByRole("button", { name: "发送生成请求" }));
+  expect(send.mock.calls[0][0].reference.id).toBe("older");
+});
+it("uses the newly completed output for the next edit", async () => {
+  const send = vi.fn().mockResolvedValue(undefined), user = userEvent.setup();
+  const first = { id: "first", url: "https://example.com/first.png", width: 800, height: 600, mime: "image/png" };
+  const view = render(<Composer projectId="chain-edit" latestResult={first} onSend={send} />);
+  await user.type(screen.getByRole("textbox"), "加深天空");
+  await user.click(screen.getByRole("button", { name: "发送生成请求" }));
+  view.rerender(<Composer projectId="chain-edit" latestResult={{ ...first, id: "second" }} onSend={send} />);
+  await user.type(screen.getByRole("textbox"), "保留文字，再加深一点");
+  await user.click(screen.getByRole("button", { name: "发送生成请求" }));
+  expect(send.mock.calls[1][0].reference.id).toBe("second");
+  expect(send.mock.calls[1][0].requestKey).not.toBe(send.mock.calls[0][0].requestKey);
+});
+it("does not adopt a new output while retrying an originally text-only request", async () => {
+  const send = vi.fn().mockRejectedValue(new Error("network")), user = userEvent.setup();
+  const view = render(<Composer projectId="text-retry" onSend={send} />);
+  await user.type(screen.getByRole("textbox"), "海岸插画");
+  await user.click(screen.getByRole("button", { name: "发送生成请求" }));
+  view.rerender(<Composer projectId="text-retry" latestResult={{ id: "result", url: "https://example.com/result.png", width: 1, height: 1, mime: "image/png" }} onSend={send} />);
+  await user.click(screen.getByRole("button", { name: "发送生成请求" }));
+  expect(send.mock.calls[1][0]).toEqual(send.mock.calls[0][0]);
+});
+it("shows auto aspect ratio for editing but honors an explicit ratio change", async () => {
+  const send = vi.fn().mockResolvedValue(undefined), user = userEvent.setup();
+  render(<Composer projectId="edit-ratio" latestResult={{ id: "latest", url: "https://example.com/a.png", width: 800, height: 600, mime: "image/png" }} onSend={send} />);
+  await user.click(screen.getByRole("button", { name: "1K · auto" }));
+  await user.click(screen.getByRole("button", { name: "16:9" }));
+  await user.type(screen.getByRole("textbox"), "改为宽屏，保留主体");
+  await user.click(screen.getByRole("button", { name: "发送生成请求" }));
+  expect(send.mock.calls[0][0].settings.ratio).toBe("16:9");
+});

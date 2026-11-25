@@ -34,6 +34,7 @@ export function HomeComposer({ ownerId }: { ownerId: string }) {
         prompt: draft.prompt,
         ...draft.settings,
         referenceAssetId: draft.reference?.id,
+        editing: draft.editing,
         newProject: true,
       }),
     });

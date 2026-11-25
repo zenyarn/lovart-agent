@@ -55,3 +55,12 @@ describe("generation contract", () => {
     ).toBe(false);
   });
 });
+it("rejects editing with no source image and sends preservation instructions with the actual reference", () => {
+  expect(generationSchema.safeParse({ ...base, editing: true }).success).toBe(false);
+  const input = generationSchema.parse({ ...base, editing: true, referenceAssetId: base.projectId });
+  const payload = toKieInput(input, "https://example.com/source.png");
+  expect(payload.input.image_input).toEqual(["https://example.com/source.png"]);
+  expect(payload.input.prompt).toContain("保留");
+  expect(payload.input.prompt).toContain("blue mug");
+  expect(() => toKieInput(input)).toThrow();
+});

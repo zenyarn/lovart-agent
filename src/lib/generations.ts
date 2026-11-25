@@ -45,6 +45,7 @@ export async function submitGeneration(
     references.map((r) => r.url),
   );
   const config = {
+    ...(input.model !== "gpt25" && input.editing ? { editing: true } : {}),
     resolution: input.resolution,
     ratio: input.ratio,
     ...(input.model === "gpt25"

@@ -684,6 +684,7 @@ function Workspace({ initial }: { initial: ProjectDetail }) {
           prompt: draft.prompt,
           ...draft.settings,
           referenceAssetId: draft.reference?.id,
+          editing: draft.editing,
         }),
       });
       await refresh();
@@ -1017,6 +1018,7 @@ function Workspace({ initial }: { initial: ProjectDetail }) {
               settingsRef.current = s;
               scheduleSave();
             }}
+            latestResult={detail.assets[detail.generations.findLast((g) => g.status === "succeeded" && g.outputs.length)?.outputs[0]?.asset_id || ""]}
             selectedReference={reference}
             onReferenceUsed={onReferenceUsed}
             restoreDraft={restore}

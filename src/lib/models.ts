@@ -57,9 +57,14 @@ export const generationSchema = z
     ratio: z.string(),
     background: z.enum(["auto", "opaque", "transparent"]).optional(),
     referenceAssetId: z.uuid().optional(),
+    editing: z.boolean().optional(),
   })
   .strict()
   .superRefine((value, ctx) => {
+    if (value.editing && !value.referenceAssetId)
+      ctx.addIssue({ code: "custom", path: ["referenceAssetId"], message: "编辑图片必须提供原图" });
+    if (value.editing && value.prompt.length > 19500)
+      ctx.addIssue({ code: "custom", path: ["prompt"], message: "编辑指令过长" });
     if (!allowedRatios(value.model, value.resolution).includes(value.ratio))
       ctx.addIssue({
         code: "custom",
@@ -139,8 +144,11 @@ export function toKieInput(
       } as Record<string, unknown>,
     };
   const referenceUrl = urls[0];
+  if (value.editing && !referenceUrl) throw new Error("编辑图片缺少原图，不能退回文生图");
   const input: Record<string, unknown> = {
-    prompt: value.prompt,
+    prompt: value.editing
+      ? `请在提供的原图上进行编辑；除非用户明确要求重构，否则不要重新构思整张图片。仅修改用户明确要求的部分；保留未要求修改的构图、物体、文字、风格及其他区域。用户编辑要求：\n${value.prompt}`
+      : value.prompt,
     aspect_ratio: value.ratio,
     resolution: value.resolution,
   };

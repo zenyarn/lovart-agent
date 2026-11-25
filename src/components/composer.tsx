@@ -26,6 +26,7 @@ export type AgentDraft = {
   requestKey: string;
 };
 export type Draft = {
+  editing?: boolean;
   prompt: string;
   reference?: Asset;
   settings: Settings;
@@ -37,6 +38,7 @@ type Props = {
   busy?: boolean;
   home?: boolean;
   selectedReference?: Asset;
+  latestResult?: Asset;
   onReferenceUsed?: () => void;
   onPick?: () => void;
   hasImages?: boolean;
@@ -56,6 +58,9 @@ const defaults: Record<Model, Settings> = {
 export function Composer(props: Props) {
   const { selectedReference, onReferenceUsed } = props;
   const [mode, setMode] = useState<"agent" | "image">("image");
+  const [referenceFrozen, setReferenceFrozen] = useState(false);
+  const [ratioChosen, setRatioChosen] = useState(false);
+  const [continueEditing, setContinueEditing] = useState(true);
   const [selectedSkill, setSelectedSkill] = useState<SkillInfo>();
   const [skillBusy, setSkillBusy] = useState(false);
   const [attachments, setAttachments] = useState<Asset[]>([]);
@@ -105,7 +110,8 @@ export function Composer(props: Props) {
     textarea = useRef<HTMLTextAreaElement>(null),
     root = useRef<HTMLDivElement>(null),
     requestKey = useRef("");
-  const config = configs[model],
+  const effectiveReference = reference || (continueEditing && !pendingReferenceId && !referenceFrozen ? props.latestResult : undefined);
+  const config = { ...configs[model], ...(effectiveReference && !ratioChosen ? { ratio: "auto" } : {}) },
     valid = allowedRatios(model, config.resolution).includes(config.ratio),
     storageKey = `lovart-draft:${props.projectId || `home:${props.ownerId || "local"}`}`;
   useEffect(() => {
@@ -115,15 +121,18 @@ export function Composer(props: Props) {
       setMode("agent");
       props.onModeChange?.("agent");
     }
+    setContinueEditing(localStorage.getItem(`${storageKey}:continue`) !== "false");
     const stored = localStorage.getItem(storageKey);
     if (stored)
       try {
         const draft = JSON.parse(stored);
         setPrompt(draft.prompt || "");
         requestKey.current = draft.requestKey || "";
+        setReferenceFrozen(Boolean(draft.requestKey));
         if (draft.model === "nano" || draft.model === "gpt")
           setModel(draft.model);
         if (draft.configs) setConfigs({ ...defaults, ...draft.configs });
+        setRatioChosen(Boolean(draft.ratioChosen));
         if (draft.referenceId) void recoverReference(draft.referenceId);
       } catch {}
     return () => {
@@ -187,10 +196,13 @@ export function Composer(props: Props) {
       setMode("image");
       props.onModeChange?.("image");
       localStorage.setItem(`${storageKey}:mode`, "image");
+      setContinueEditing(false);
+      localStorage.setItem(`${storageKey}:continue`, "false");
       setReference(props.restoreDraft.reference);
       setPendingReferenceId(undefined);
       setReferenceError("");
       if (props.restoreDraft.settings) {
+        setRatioChosen(true);
         setModel(props.restoreDraft.settings.model);
         setConfigs((c) => ({
           ...c,
@@ -198,6 +210,7 @@ export function Composer(props: Props) {
         }));
       }
       requestKey.current = "";
+      setReferenceFrozen(false);
       textarea.current?.focus();
     }
     // Explicit history restore should not repeat on callback identity changes.
@@ -223,6 +236,7 @@ export function Composer(props: Props) {
     ref: Asset | undefined,
     nextConfigs = configs,
     nextModel = model,
+    nextRatioChosen = ratioChosen,
   ) {
     localStorage.setItem(
       storageKey,
@@ -230,15 +244,17 @@ export function Composer(props: Props) {
         prompt: text,
         referenceId: ref?.id || pendingReferenceId,
         configs: nextConfigs,
+        ratioChosen: nextRatioChosen,
         model: nextModel,
         requestKey: requestKey.current,
       }),
     );
   }
   function changeConfig(patch: Partial<Settings>) {
+    if (patch.ratio !== undefined) setRatioChosen(true);
     const next = { ...configs, [model]: { ...config, ...patch } };
     setConfigs(next);
-    remember(prompt, reference, next);
+    remember(prompt, reference, next, model, patch.ratio !== undefined || ratioChosen);
     props.onSettings?.(next);
   }
   async function uploadMany(files: File[]) {
@@ -313,17 +329,27 @@ export function Composer(props: Props) {
     setSending(true);
     setError("");
     requestKey.current ||= crypto.randomUUID();
-    remember(prompt, reference);
+    // Freeze the source and configuration before submitting so retries cannot
+    // silently switch to a newer result after a lost response.
+    const source = effectiveReference;
+    const sendConfig = config;
+    setReference(source);
+    setReferenceFrozen(true);
+    remember(prompt, source, { ...configs, [model]: sendConfig });
     try {
       await props.onSend({
         prompt: prompt.trim(),
-        reference,
-        settings: config,
+        reference: source,
+        editing: Boolean(source),
+        settings: sendConfig,
         requestKey: requestKey.current,
       });
       setPrompt("");
       setReference(undefined);
+      setContinueEditing(true);
+      localStorage.removeItem(`${storageKey}:continue`);
       requestKey.current = "";
+      setReferenceFrozen(false);
       localStorage.removeItem(storageKey);
     } catch (e) {
       setError((e as Error).message);
@@ -425,16 +451,32 @@ export function Composer(props: Props) {
           ))}
         </div>
       )}
+      {!props.home && mode === "image" && (props.latestResult || effectiveReference) && (
+        <div className="editing-context">
+          <span>{effectiveReference ? "编辑此图 · 未提及的内容尽量保留" : "新建图片 · 不沿用上一张"}</span>
+          <button type="button" disabled={editingLocked || props.busy} onClick={() => {
+            const next = !effectiveReference;
+            setContinueEditing(next);
+            setReference(undefined);
+            requestKey.current = "";
+            setReferenceFrozen(false);
+            localStorage.setItem(`${storageKey}:continue`, String(next));
+            remember(prompt, undefined);
+          }}>{effectiveReference ? "新建图片" : "继续编辑上一张"}</button>
+        </div>
+      )}
       {!props.home && mode === "image" && (
         <div className="reference-row">
-          {reference && (
+          {effectiveReference && (
             <div className="reference-thumb">
-              <img src={reference.url} alt="参考图" />
+              <img src={effectiveReference.url} alt="参考图" />
               <button
                 title="移除参考图"
                 disabled={editingLocked}
                 onClick={() => {
                   setReference(undefined);
+                  setContinueEditing(false);
+                  localStorage.setItem(`${storageKey}:continue`, "false");
                   remember(prompt, undefined);
                 }}
               >
