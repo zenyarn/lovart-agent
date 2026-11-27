@@ -24,13 +24,15 @@ export async function POST(request: Request) {
         process.env.APP_URL || "http://localhost:3000",
       );
       callback.searchParams.set("next", safeReturnPath(next));
-      const { error } = await client.auth.signUp({
+      const { data, error } = await client.auth.signUp({
         email,
         password,
         options: { emailRedirectTo: callback.toString() },
       });
       if (error)
         throw new AppError(400, "账户创建失败，请稍后重试；已有账户请直接登录");
+      if (data?.session && data.user?.email_confirmed_at)
+        return Response.json({ redirect: safeReturnPath(next) });
       return Response.json({ message: "请在邮箱中确认账户，然后返回登录。" });
     }
     const { data, error } = await client.auth.signInWithPassword({

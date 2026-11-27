@@ -1,4 +1,5 @@
 import "server-only";
+import { agentExecutionBudget } from "./execution-budget";
 import { Agent, type AgentMessage } from "@earendil-works/pi-agent-core";
 import { adminClient } from "../supabase/admin";
 import { readAssetBytes, projectAsset } from "../assets";
@@ -42,7 +43,17 @@ export async function executeAgentRun(
     if (e) throw Error("会话保存失败");
     lastSave = Date.now();
   }
-  const timeout = setTimeout(() => agent?.abort(), 15 * 60 * 1000);
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    agent?.abort();
+    const message = "本轮达到运行时限；已提交的生图任务保留，请确认画布结果后继续";
+    events.push({ type: "error", message });
+    // A provider download may not observe abort immediately. Persist the deadline
+    // independently, before the platform kills the request; late saves cannot
+    // overwrite this because save() only updates rows still marked running.
+    void save("failed", message).catch(() => console.error("Agent timeout persistence failed", run.id));
+  }, agentExecutionBudget({ VERCEL: process.env.VERCEL }));
   try {
     const { models, model, apiKey } = kimiConfiguration();
     const { data: past, error } = await client
@@ -145,6 +156,7 @@ export async function executeAgentRun(
         await save();
     });
     await agent.prompt(prompt);
+    if (timedOut) throw Error("本轮达到运行时限；已提交的生图任务保留，请确认画布结果后继续");
     if (agent.state.errorMessage)
       throw Error(
         /429|rate_limit/i.test(agent.state.errorMessage)

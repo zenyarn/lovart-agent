@@ -274,10 +274,22 @@ export function Composer(props: Props) {
       const body = new FormData();
       body.set("file", f);
       if (props.projectId) body.set("projectId", props.projectId);
-      const data = await api<{ asset: Asset }>("/api/assets", {
-        method: "POST",
-        body,
-      });
+      let data: { asset: Asset };
+      if (f.size > 4 * 1024 * 1024) {
+        const ticket = await api<{ path: string; signedUrl: string }>("/api/assets/direct", {
+          method: "POST", body: JSON.stringify({ projectId: props.projectId }),
+        });
+        const uploadBody = new FormData();
+        uploadBody.set("cacheControl", "3600");
+        uploadBody.set("", f);
+        const uploaded = await fetch(ticket.signedUrl, { method: "PUT", body: uploadBody });
+        if (!uploaded.ok) throw new Error("图片上传失败，请重试");
+        data = await api<{ asset: Asset }>("/api/assets/direct", {
+          method: "PUT", body: JSON.stringify({ path: ticket.path, projectId: props.projectId }),
+        });
+      } else {
+        data = await api<{ asset: Asset }>("/api/assets", { method: "POST", body });
+      }
       if (mode === "agent")
         setAttachments((old) => [...old, data.asset].slice(0, 20));
       else {

@@ -37,3 +37,14 @@ SMTP 密钥只需保存在 Supabase，不必放入前端或 Vercel。不要使�
 网页端已验证当前工作区可访问且能发现 GitHub 仓库，插件工具仍未载入当前聊天。当前套餐为 Hobby，现有 Agent 路由 `maxDuration=900` 不适用于其 300 秒上限。须完成分段持久化执行/恢复方案及真实验收后部署，不能直接把上限改成 300 秒冒充修复。
 
 部署还需安全注入 `.env.example` 中服务端配置，配置正式 `APP_URL` 和 Auth 回调，验证参考图/Markdown 上传大小限制、跨账号访问隔离、积分用尽、失败退款和多张图片的连续执行。确认这些条件前不标记上线完成。
+
+## 2026-11-27 当前部署方式
+
+用户已改为免邮件确认的邮箱+密码注册。关闭 Supabase Authentication / Sign In / Providers 的 Confirm email 后，新注册返回会话，应用直接跳转；无需先配置 SMTP。正式站点 URL 和回调白名单应对应部署域名，本地回调可保留。
+
+- 使用 Vercel CLI 的 `vercel deploy --prod` 发布当前 `feat/pi-agent-skills` 分支。Git 集成当前默认生产分支仍为 main，尚未改为此开发分支；不要将 main 的旧代码作为本次版本重新部署。
+- 环境变量按 `.env.example` 注入生产环境；所有密钥保留在平台服务端。不要将 `.env` 或 `.local` 上传或提交。
+- 同名附加临时桶 `${SUPABASE_STORAGE_BUCKET}-uploads`：private，fileSizeLimit=10485760，allowedMimeTypes=image/png,image/jpeg,image/webp；不授予客户端直接读写策略，使用服务端生成的定址签名上传票据。
+- `/api/assets/direct` 发放票据并校验最终图片、用户路径和目标项目所有权。`/api/cron/uploads` 使用 CRON_SECRET，按 vercel.json 每日删除3小时前的暂存对象，正常完成即删除。
+- Hobby 函数最大300秒，Agent在260秒独立保存中断状态。已提交生图任务可由原有同步接口收取结果；长批次尚不自动跨函数续跑。
+- 没有 SMTP 时暂不提供邮件找回密码。免验证注册也不验证邮箱归属，5积分为每账号限制，不能阻止同一人重复注册。

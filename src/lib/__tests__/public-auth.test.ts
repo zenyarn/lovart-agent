@@ -19,3 +19,9 @@ it('accepts public signup and explains email verification',async()=>{
  expect(response.status).toBe(200);
  expect((await response.json()).message).toContain('邮箱');
 });
+it('redirects straight into the app when signup returns an authenticated session',async()=>{
+ mocks.signUp.mockResolvedValue({data:{session:{access_token:'test'},user:{email_confirmed_at:'2026-11-27'}},error:null});
+ const response=await POST(new Request('http://localhost:3000/api/auth/login',{method:'POST',headers:{origin:'http://localhost:3000','Content-Type':'application/json'},body:JSON.stringify({email:'new@example.com',password:'strong-pass-123',action:'signup',next:'/projects'})}));
+ expect(response.status).toBe(200);
+ expect((await response.json()).redirect).toBe('/projects');
+});

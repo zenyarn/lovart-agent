@@ -1,0 +1,6 @@
+.env*
+.local/
+.git/
+docs/
+test-results/
+playwright-report/

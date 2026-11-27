@@ -14,7 +14,7 @@ import { expireAbandonedRuns } from "@/lib/agent/recovery";
 import { executeAgentRun } from "@/lib/agent/runtime";
 import type { AgentRun } from "@/lib/agent/types";
 export const runtime = "nodejs";
-export const maxDuration = 900;
+export const maxDuration = 300;
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
