@@ -23,6 +23,10 @@ it('grants five credits once and isolates account balances',async()=>{
 it('reserves once for repeated requests and refunds an explicit failure once',async()=>{
  const key=randomUUID(), a=await begin(key); await begin(key);
  expect(await balance()).toBe(4);
+ await db.query("update generations set status='persisting',error='temporary storage failure' where id=$1",[a.generation.id]);
+ await begin(key);
+ expect(await balance()).toBe(4);
+ expect((await db.query("select id from credit_ledger where generation_id=$1 and kind='generation'",[a.generation.id])).rows).toHaveLength(1);
  await db.query("update generations set status='submission_unknown' where id=$1",[a.generation.id]);
  expect(await balance()).toBe(4);
  await db.query("update generations set status='failed' where id=$1",[a.generation.id]);

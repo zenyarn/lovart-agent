@@ -42,7 +42,7 @@ SMTP 密钥只需保存在 Supabase，不必放入前端或 Vercel。不要使�
 
 用户已改为免邮件确认的邮箱+密码注册。关闭 Supabase Authentication / Sign In / Providers 的 Confirm email 后，新注册返回会话，应用直接跳转；无需先配置 SMTP。正式站点 URL 和回调白名单应对应部署域名，本地回调可保留。
 
-- 使用 Vercel CLI 的 `vercel deploy --prod` 发布当前 `feat/pi-agent-skills` 分支。Git 集成当前默认生产分支仍为 main，尚未改为此开发分支；不要将 main 的旧代码作为本次版本重新部署。
+- 2026-11-27 首次通过 Vercel CLI 发布功能分支；后续已按用户要求合并 main 并推送，Git 集成现在从 main 自动部署生产版本。
 - 环境变量按 `.env.example` 注入生产环境；所有密钥保留在平台服务端。不要将 `.env` 或 `.local` 上传或提交。
 - 同名附加临时桶 `${SUPABASE_STORAGE_BUCKET}-uploads`：private，fileSizeLimit=10485760，allowedMimeTypes=image/png,image/jpeg,image/webp；不授予客户端直接读写策略，使用服务端生成的定址签名上传票据。
 - `/api/assets/direct` 发放票据并校验最终图片、用户路径和目标项目所有权。`/api/cron/uploads` 使用 CRON_SECRET，按 vercel.json 每日删除3小时前的暂存对象，正常完成即删除。

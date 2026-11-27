@@ -64,18 +64,22 @@ it("propagates denied asset ownership without exposing pixels", async () => {
       .execute("t", { assetId: ref }),
   ).rejects.toThrow("素材不存在");
 });
-it("retries saving the same paid result before continuing a four-image batch", async () => {
+it.each([3, 4])("retries saving the same paid result before continuing a %i-image batch", async (count) => {
   const { adminClient } = await import("../supabase/admin");
+  const { syncGeneration } = await import("../generations");
+  vi.mocked(syncGeneration).mockClear();
+  const ids = Array.from({ length: count }, (_, i) => `55555555-5555-4555-8555-${String(i + 1).padStart(12, "0")}`);
+  let currentId = ids[0];
   const status = vi
     .fn()
     .mockResolvedValueOnce({
-      data: { id: ref, status: "persisting", error: "保存暂时失败" },
+      data: { id: ids[0], status: "persisting", error: "保存暂时失败" },
       error: null,
     })
-    .mockResolvedValue({
-      data: { id: ref, status: "succeeded", error: null },
+    .mockImplementation(async () => ({
+      data: { id: currentId, status: "succeeded", error: null },
       error: null,
-    });
+    }));
   const query = {
     select: vi.fn(),
     eq: vi.fn(),
@@ -93,7 +97,10 @@ it("retries saving the same paid result before continuing a four-image batch", a
     from: () => query,
   } as unknown as ReturnType<typeof adminClient>);
   state.submit.mockClear();
-  state.submit.mockResolvedValue({ generationId: ref });
+  state.submit.mockImplementation(async () => {
+    currentId = ids[state.submit.mock.calls.length - 1];
+    return { generationId: currentId };
+  });
   vi.useFakeTimers();
   try {
     const tool = createCanvasTools("owner", project).find(
@@ -109,10 +116,13 @@ it("retries saving the same paid result before continuing a four-image batch", a
     await vi.advanceTimersByTimeAsync(2100);
     expect((await pending).isError).not.toBe(true);
     expect(state.submit).toHaveBeenCalledTimes(1);
-    for (let i = 0; i < 3; i++)
+    for (let i = 1; i < count; i++)
       expect((await tool.execute(String(i), args)).isError).not.toBe(true);
-    expect(state.submit).toHaveBeenCalledTimes(4);
-    await expect(tool.execute("fifth", args)).rejects.toThrow("最多生成四张");
+    expect(state.submit).toHaveBeenCalledTimes(count);
+    expect(vi.mocked(syncGeneration).mock.calls.map((call) => call[1])).toEqual([ids[0], ...ids]);
+    expect(new Set(state.submit.mock.calls.map((call) => call[1].requestKey)).size).toBe(count);
+    if (count === 4)
+      await expect(tool.execute("fifth", args)).rejects.toThrow("最多生成四张");
   } finally {
     vi.useRealTimers();
   }
